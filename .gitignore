@@ -1,0 +1,5 @@
+.env
+altyn_leads.csv
+lead_state.json
+__pycache__/
+*.py[cod]
