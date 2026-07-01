@@ -27,7 +27,7 @@ Telegram-бот для сбора и ручной обработки потен�
 4. Запустите:
 
 ```bash
-python tg_lead_bot.py
+python main.py
 ```
 
 Пример для PowerShell:
@@ -35,7 +35,7 @@ python tg_lead_bot.py
 ```powershell
 $env:BOT_TOKEN="токен от BotFather"
 $env:ALLOWED_USER_IDS="ваш Telegram ID"
-python .\tg_lead_bot.py
+python .\main.py
 ```
 
 ## Переменные окружения
@@ -81,7 +81,7 @@ AUTO_COLLECT_LIMIT=30
 Добавьте переменные окружения из `.env.example` и укажите команду запуска:
 
 ```text
-python tg_lead_bot.py
+python main.py
 ```
 
 Файлы `altyn_leads.csv` и `lead_state.json` создаются автоматически и не публикуются в Git.
