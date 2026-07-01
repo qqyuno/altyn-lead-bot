@@ -750,6 +750,12 @@ def upsert_rows(csv_path, rows):
     return added, updated
 
 
+def has_required_contact(row, allow_email_only=False):
+    if row.get("Telegram"):
+        return True
+    return allow_email_only and bool(row.get("Email"))
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -762,6 +768,11 @@ def main():
     parser.add_argument("--max-queries", type=int, default=5)
     parser.add_argument("--scan-pages", type=int, default=10)
     parser.add_argument("--min-score", type=int, default=5)
+    parser.add_argument(
+        "--allow-email-only",
+        action="store_true",
+        help="Include projects without Telegram when an email is available.",
+    )
     args = parser.parse_args()
 
     queries = read_lines(args.queries)
@@ -786,7 +797,7 @@ def main():
             except Exception as exc:
                 print(f"Scan failed: {exc}")
                 continue
-            if not row["Telegram"] and not row["Email"]:
+            if not has_required_contact(row, allow_email_only=args.allow_email_only):
                 continue
             if row["Сфера"] == "нецелевой":
                 continue
