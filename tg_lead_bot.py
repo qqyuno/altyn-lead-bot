@@ -480,6 +480,13 @@ def collection_status():
     return COLLECT_STATE["last_result"]
 
 
+def parsed_collection_counts(output, fallback_added):
+    match = re.search(r"Done\. Added (\d+) leads, updated (\d+) leads", output or "")
+    if not match:
+        return fallback_added, 0
+    return int(match.group(1)), int(match.group(2))
+
+
 def run_collection(chat_id, limit):
     before = len(load_rows())
     try:
@@ -501,10 +508,11 @@ def run_collection(chat_id, limit):
             check=False,
         )
         after = len(load_rows())
-        added = max(0, after - before)
+        added, updated = parsed_collection_counts(completed.stdout, max(0, after - before))
         if completed.returncode == 0:
             result = (
-                f"Сбор завершён. Новых лидов: {added}. Всего в базе: {after}.\n"
+                f"Сбор завершён. Новых лидов: {added}. Обновлено контактов: {updated}. "
+                f"Всего в базе: {after}.\n"
                 "Нажми «Следующий лид», чтобы начать разбор контактов."
             )
         else:

@@ -1,4 +1,7 @@
+import csv
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import lead_hunter
@@ -70,6 +73,57 @@ class TelegramContactTests(unittest.TestCase):
             row = lead_hunter.scan_site("https://demo.exchange", scan_pages=3)
 
         self.assertEqual(row["Telegram"], "@demo_public")
+
+    def test_upsert_adds_telegram_to_existing_project_without_duplicate(self):
+        old = {
+            "Название проекта": "Demo USDT Exchange",
+            "Сфера": "криптообменник",
+            "Telegram": "",
+            "Email": "hello@demo.exchange",
+            "Оценка 1-10 для покупки франшизы": "8",
+        }
+        fresh = {
+            "Название проекта": "Demo USDT Exchange",
+            "Сфера": "криптообменник",
+            "Telegram": "@demo_partner",
+            "Email": "sales@demo.exchange",
+            "Оценка 1-10 для покупки франшизы": "10",
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.csv"
+            lead_hunter.upsert_rows(path, [old])
+            added, updated = lead_hunter.upsert_rows(path, [fresh])
+            with path.open("r", encoding="utf-8-sig", newline="") as file:
+                rows = list(csv.DictReader(file))
+
+        self.assertEqual((added, updated), (0, 1))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["Telegram"], "@demo_partner")
+        self.assertIn("hello@demo.exchange", rows[0]["Email"])
+        self.assertIn("sales@demo.exchange", rows[0]["Email"])
+        self.assertEqual(rows[0]["Оценка 1-10 для покупки франшизы"], "10")
+
+    def test_upsert_keeps_generic_titles_from_different_domains_separate(self):
+        first = {
+            "Название проекта": "Обменный пункт электронных валют",
+            "Сфера": "криптообменник",
+            "Telegram": "",
+            "Email": "support@first.exchange",
+            "Оценка 1-10 для покупки франшизы": "8",
+        }
+        second = {
+            **first,
+            "Email": "support@second.exchange",
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "leads.csv"
+            lead_hunter.upsert_rows(path, [first, second])
+            with path.open("r", encoding="utf-8-sig", newline="") as file:
+                rows = list(csv.DictReader(file))
+
+        self.assertEqual(len(rows), 2)
 
 
 if __name__ == "__main__":

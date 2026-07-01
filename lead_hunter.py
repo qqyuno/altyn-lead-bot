@@ -151,6 +151,17 @@ TG_LINK_RE = re.compile(
 )
 TG_HANDLE_RE = re.compile(r"(?<!\w)@([A-Za-z0-9_]{4,32})(?!\w)")
 TG_USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{4,32}$")
+DOMAIN_IN_TEXT_RE = re.compile(r"\b(?:www\.)?([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)+)\b", re.I)
+PUBLIC_EMAIL_DOMAINS = {
+    "gmail.com",
+    "icloud.com",
+    "mail.ru",
+    "outlook.com",
+    "proton.me",
+    "protonmail.com",
+    "yahoo.com",
+    "yandex.ru",
+}
 TG_RESERVED_PATHS = {
     "addlist",
     "addstickers",
@@ -660,16 +671,83 @@ def existing_keys(csv_path):
     return keys
 
 
-def append_rows(csv_path, rows):
+def project_key(row):
+    name = row.get("Название проекта", "").lower().strip()
+    domain_match = DOMAIN_IN_TEXT_RE.search(name)
+    if domain_match:
+        return "domain:" + domain_match.group(1).removeprefix("www.")
+
+    email_match = EMAIL_RE.search(row.get("Email", ""))
+    if email_match:
+        email_domain = email_match.group(0).rsplit("@", 1)[-1].lower()
+        if email_domain not in PUBLIC_EMAIL_DOMAINS:
+            return "domain:" + email_domain
+
+    telegram_match = TG_HANDLE_RE.search(row.get("Telegram", ""))
+    if telegram_match:
+        return "telegram:" + telegram_match.group(1).lower()
+
+    normalized_name = re.sub(r"[^a-zа-яё0-9]+", "", name)
+    generic_names = {
+        "обменныйпунктэлектронныхвалют",
+        "обменкриптовалют",
+        "cryptocurrencyexchange",
+        "cryptoexchange",
+    }
+    if len(normalized_name) < 8 or normalized_name in generic_names:
+        return ""
+    return "name:" + normalized_name
+
+
+def merge_lead_rows(current, fresh):
+    merged = dict(current)
+    if fresh.get("Telegram"):
+        merged["Telegram"] = fresh["Telegram"]
+    if fresh.get("Email"):
+        current_emails = [item.strip() for item in current.get("Email", "").split(",") if item.strip()]
+        fresh_emails = [item.strip() for item in fresh.get("Email", "").split(",") if item.strip()]
+        merged["Email"] = ", ".join(list(dict.fromkeys(current_emails + fresh_emails))[:3])
+    if fresh.get("Сфера") and fresh.get("Сфера") != "нецелевой":
+        merged["Сфера"] = fresh["Сфера"]
+    merged["Оценка 1-10 для покупки франшизы"] = str(
+        max(
+            int(current.get("Оценка 1-10 для покупки франшизы", "1") or 1),
+            int(fresh.get("Оценка 1-10 для покупки франшизы", "1") or 1),
+        )
+    )
+    return merged
+
+
+def upsert_rows(csv_path, rows):
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    exists = path.exists()
-    with path.open("a", encoding="utf-8-sig", newline="") as file:
+    existing = []
+    if path.exists():
+        with path.open("r", encoding="utf-8-sig", newline="") as file:
+            existing = list(csv.DictReader(file))
+
+    positions = {project_key(row): index for index, row in enumerate(existing) if project_key(row)}
+    added = 0
+    updated = 0
+    for row in rows:
+        key = project_key(row)
+        if key and key in positions:
+            index = positions[key]
+            merged = merge_lead_rows(existing[index], row)
+            if merged != existing[index]:
+                existing[index] = merged
+                updated += 1
+            continue
+        positions[key] = len(existing)
+        existing.append(row)
+        added += 1
+
+    with path.open("w", encoding="utf-8-sig", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=HEADERS)
-        if not exists:
-            writer.writeheader()
-        for row in rows:
+        writer.writeheader()
+        for row in existing:
             writer.writerow(row)
+    return added, updated
 
 
 def main():
@@ -742,8 +820,8 @@ def main():
             continue
         collect_candidates(candidates)
 
-    append_rows(args.out, rows)
-    print(f"Done. Added {len(rows)} leads to {args.out}")
+    added, updated = upsert_rows(args.out, rows)
+    print(f"Done. Added {added} leads, updated {updated} leads in {args.out}")
 
 
 if __name__ == "__main__":
