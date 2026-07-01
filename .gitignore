@@ -1,5 +1,6 @@
 .env
 altyn_leads.csv
 lead_state.json
+data/
 __pycache__/
 *.py[cod]

@@ -27,7 +27,45 @@ HEADERS = [
     "Оценка 1-10 для покупки франшизы",
 ]
 
-CONTACT_PATHS = ("", "/contacts", "/contact", "/about", "/support", "/help")
+CONTACT_PATHS = (
+    "",
+    "/contacts",
+    "/contact",
+    "/contact-us",
+    "/partners",
+    "/partnership",
+    "/affiliate",
+    "/cooperation",
+    "/business",
+    "/about",
+    "/team",
+    "/support",
+    "/help",
+)
+CONTACT_LINK_MARKERS = (
+    "contact",
+    "partner",
+    "affiliate",
+    "cooperat",
+    "business",
+    "commercial",
+    "team",
+    "support",
+    "help",
+    "feedback",
+    "telegram",
+    "social",
+    "контакт",
+    "партнер",
+    "партнёр",
+    "сотруднич",
+    "коммерц",
+    "команда",
+    "поддерж",
+    "помощ",
+    "соцсет",
+    "мессендж",
+)
 SKIP_DOMAINS = {
     "bestchange.ru",
     "exchangesumo.com",
@@ -107,8 +145,24 @@ EDITORIAL_TITLE_MARKERS = (
 )
 
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}")
-TG_LINK_RE = re.compile(r"(?:https?://)?(?:t\.me|telegram\.me)/([A-Za-z0-9_]{4,32})", re.I)
+TG_LINK_RE = re.compile(
+    r"(?:https?://)?(?:t\.me|telegram\.me|telegram\.dog)/([A-Za-z0-9_]{4,32})",
+    re.I,
+)
 TG_HANDLE_RE = re.compile(r"(?<!\w)@([A-Za-z0-9_]{4,32})(?!\w)")
+TG_USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{4,32}$")
+TG_RESERVED_PATHS = {
+    "addlist",
+    "addstickers",
+    "confirmphone",
+    "invoice",
+    "joinchat",
+    "login",
+    "proxy",
+    "s",
+    "setlanguage",
+    "share",
+}
 
 
 class TitleParser(HTMLParser):
@@ -143,6 +197,32 @@ class DuckDuckGoResultParser(HTMLParser):
         href = attributes.get("href", "")
         if "result__a" in classes and href:
             self.links.append(href)
+
+
+class SiteLinkParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links = []
+        self._href = ""
+        self._text = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "a" or self._href:
+            return
+        self._href = dict(attrs).get("href", "")
+        self._text = []
+
+    def handle_data(self, data):
+        if self._href:
+            self._text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag != "a" or not self._href:
+            return
+        text = re.sub(r"\s+", " ", " ".join(self._text)).strip()
+        self.links.append((html.unescape(self._href), text))
+        self._href = ""
+        self._text = []
 
 
 def fetch(url, timeout=5):
@@ -304,11 +384,104 @@ def page_title(html_text):
     return re.sub(r"\s+", " ", parser.title).strip()[:110]
 
 
-def extract_contacts(text):
-    emails = sorted({x.strip(".,;:()[]<>").lower() for x in EMAIL_RE.findall(text)})
-    handles = set(TG_LINK_RE.findall(text))
-    visible = visible_text(text)
-    handles.update(TG_HANDLE_RE.findall(visible))
+def parse_site_links(html_text):
+    parser = SiteLinkParser()
+    try:
+        parser.feed(html_text)
+    except Exception:
+        return []
+    return parser.links
+
+
+def telegram_handle_from_href(href):
+    value = html.unescape(href or "").replace("\\/", "/")
+    if value.startswith("//"):
+        value = "https:" + value
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme.lower() == "tg" and parsed.netloc.lower() == "resolve":
+        handle = urllib.parse.parse_qs(parsed.query).get("domain", [""])[0]
+    elif parsed.netloc.lower().removeprefix("www.") in {
+        "t.me",
+        "telegram.me",
+        "telegram.dog",
+    }:
+        handle = parsed.path.strip("/").split("/", 1)[0]
+    else:
+        return ""
+    handle = handle.lstrip("@").strip()
+    if handle.lower() in TG_RESERVED_PATHS or not TG_USERNAME_RE.fullmatch(handle):
+        return ""
+    return handle
+
+
+def telegram_contact_score(handle, context, source_url):
+    low = f"{handle} {context} {source_url}".lower()
+    score = 10
+
+    if any(
+        marker in low
+        for marker in (
+            "partner",
+            "partnership",
+            "affiliate",
+            "cooperat",
+            "business",
+            "commercial",
+            "bizdev",
+            "sales",
+            "owner",
+            "founder",
+            "партнер",
+            "партнёр",
+            "сотруднич",
+            "бизнес",
+            "коммерц",
+            "продаж",
+            "владел",
+            "руковод",
+        )
+    ):
+        score += 100
+    elif any(marker in low for marker in ("manager", "admin", "contact", "team", "менеджер", "админ", "контакт")):
+        score += 70
+    elif any(marker in low for marker in ("support", "help", "operator", "поддерж", "помощ", "оператор")):
+        score += 40
+
+    if any(marker in low for marker in ("news", "channel", "rates", "rate", "reserve", "новост", "курс", "резерв")):
+        score -= 35
+    if any(marker in low for marker in ("chat", "community", "group", "отзывы", "reviews", "чат")):
+        score -= 25
+    if handle.lower().endswith("bot") or " telegram bot" in low:
+        score -= 50
+    return score
+
+
+def extract_telegram_candidates(html_text, source_url=""):
+    candidates = {}
+
+    def remember(handle, context):
+        if not handle:
+            return
+        score = telegram_contact_score(handle, context, source_url)
+        previous = candidates.get(handle.lower())
+        if not previous or score > previous[0]:
+            candidates[handle.lower()] = (score, "@" + handle)
+
+    normalized = html_text.replace("\\/", "/")
+    for href, anchor_text in parse_site_links(normalized):
+        remember(telegram_handle_from_href(href), f"{anchor_text} {href}")
+
+    for match in TG_LINK_RE.finditer(normalized):
+        start = max(0, match.start() - 100)
+        end = min(len(normalized), match.end() + 100)
+        remember(match.group(1), visible_text(normalized[start:end]))
+
+    visible = visible_text(normalized)
+    for match in TG_HANDLE_RE.finditer(visible):
+        start = max(0, match.start() - 80)
+        end = min(len(visible), match.end() + 80)
+        remember(match.group(1), visible[start:end])
+
     excluded_handles = {
         "charset",
         "font",
@@ -324,12 +497,35 @@ def extract_contacts(text):
         "telegram",
         "username",
     }
-    telegram = sorted(
-        "@" + handle.lstrip("@")
-        for handle in handles
-        if handle.lower() not in excluded_handles
+    ranked = sorted(
+        (
+            (score, display)
+            for key, (score, display) in candidates.items()
+            if key not in excluded_handles
+        ),
+        key=lambda item: (-item[0], item[1].lower()),
     )
+    return ranked
+
+
+def extract_contacts(text, source_url=""):
+    emails = sorted({x.strip(".,;:()[]<>").lower() for x in EMAIL_RE.findall(text)})
+    telegram = [display for _, display in extract_telegram_candidates(text, source_url)]
     return telegram[:3], emails[:3]
+
+
+def discover_contact_pages(html_text, current_url, root):
+    root_domain = domain_of(root)
+    candidates = []
+    for href, anchor_text in parse_site_links(html_text):
+        absolute = clean_url(urllib.parse.urljoin(current_url, href))
+        if not absolute or domain_of(absolute) != root_domain:
+            continue
+        hint = f"{urllib.parse.urlparse(absolute).path} {anchor_text}".lower()
+        if not any(marker in hint for marker in CONTACT_LINK_MARKERS):
+            continue
+        candidates.append(absolute)
+    return list(dict.fromkeys(candidates))
 
 
 def classify_and_score(text, telegram, email):
@@ -394,16 +590,23 @@ def is_target_project(title, text):
     return has_crypto and has_service
 
 
-def scan_site(url, scan_pages=3):
+def scan_site(url, scan_pages=10):
     combined = ""
     title = ""
-    found_telegram = []
+    telegram_scores = {}
     found_email = []
     root = base_url(url)
+    queue = [root]
+    queue.extend(root + path for path in CONTACT_PATHS if path)
+    seen_pages = set()
 
-    for path in CONTACT_PATHS[:scan_pages]:
+    while queue and len(seen_pages) < scan_pages:
+        page_url = queue.pop(0)
+        if page_url in seen_pages:
+            continue
+        seen_pages.add(page_url)
         try:
-            page = fetch(root + path)
+            page = fetch(page_url)
         except Exception:
             continue
         if not page:
@@ -412,14 +615,20 @@ def scan_site(url, scan_pages=3):
             title = page_title(page)
         text = visible_text(page)
         combined += " " + text[:150_000]
-        tg, email = extract_contacts(page + " " + text)
-        found_telegram.extend(tg)
+        for score, display in extract_telegram_candidates(page, page_url):
+            key = display.lower()
+            telegram_scores[key] = max(score, telegram_scores.get(key, -10_000))
+        email = sorted({x.strip(".,;:()[]<>").lower() for x in EMAIL_RE.findall(page + " " + text)})
         found_email.extend(email)
-        if found_telegram or found_email:
-            break
+        discovered = discover_contact_pages(page, page_url, root)
+        queue = discovered + [candidate for candidate in queue if candidate not in discovered]
         time.sleep(0.2)
 
-    found_telegram = sorted(set(found_telegram))
+    ranked_telegram = sorted(
+        ((score, handle) for handle, score in telegram_scores.items()),
+        key=lambda item: (-item[0], item[1]),
+    )
+    found_telegram = [handle for _, handle in ranked_telegram[:1]]
     found_email = sorted(set(found_email))
     if not is_target_project(title, combined):
         sphere, score = "нецелевой", 1
@@ -433,7 +642,7 @@ def scan_site(url, scan_pages=3):
         "Название проекта": title or domain_of(url),
         "Сфера": sphere,
         "Telegram": ", ".join(found_telegram),
-        "Email": ", ".join(found_email),
+        "Email": ", ".join(found_email[:3]),
         "Оценка 1-10 для покупки франшизы": str(score),
     }
 
@@ -473,7 +682,7 @@ def main():
     parser.add_argument("--out", default=str(Path(__file__).with_name("altyn_leads.csv")))
     parser.add_argument("--search-results", type=int, default=10)
     parser.add_argument("--max-queries", type=int, default=5)
-    parser.add_argument("--scan-pages", type=int, default=3)
+    parser.add_argument("--scan-pages", type=int, default=10)
     parser.add_argument("--min-score", type=int, default=5)
     args = parser.parse_args()
 
@@ -495,7 +704,7 @@ def main():
             seen_domains.add(domain)
             print(f"Scanning: {domain}")
             try:
-                row = scan_site(url, scan_pages=max(1, min(6, args.scan_pages)))
+                row = scan_site(url, scan_pages=max(1, min(12, args.scan_pages)))
             except Exception as exc:
                 print(f"Scan failed: {exc}")
                 continue
