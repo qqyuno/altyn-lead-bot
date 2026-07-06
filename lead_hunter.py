@@ -117,26 +117,43 @@ NON_TARGET_MARKERS = (
 )
 
 TARGET_TITLE_MARKERS = (
+    "card",
     "crypto",
     "exchange",
     "exchanger",
+    "game",
     "otc",
+    "payment",
+    "steam",
     "usdt",
+    "visa",
     "wallet",
+    "виртуальн",
+    "зарубеж",
+    "карт",
     "крипто",
     "кошелек",
     "кошелёк",
     "обмен",
     "обмін",
+    "оплат",
+    "пополн",
+    "подпис",
 )
 
 EDITORIAL_TITLE_MARKERS = (
     "how to ",
     "what is ",
+    "review ",
     "как купить",
     "как обменять",
+    "как оформить",
+    "как пополнить",
     "курс валют",
     "новости",
+    "обзор",
+    "лучшие ",
+    "топ ",
     "объявления",
     "оголошення",
     "криптобиржи, обменники",
@@ -549,14 +566,65 @@ def classify_and_score(text, telegram, email):
 
     has_exchange = any(x in low for x in ("обменник", "обмен usdt", "exchanger", "exchange"))
     has_otc = any(x in low for x in ("otc", "p2p", "арбитраж"))
-    has_fintech = any(x in low for x in ("payment", "gateway", "эквайринг", "платежный шлюз", "pay-in", "pay-out"))
+    has_fintech = any(
+        x in low
+        for x in (
+            "payment",
+            "gateway",
+            "эквайринг",
+            "платежный шлюз",
+            "платёжный шлюз",
+            "платежный сервис",
+            "платёжный сервис",
+            "pay-in",
+            "pay-out",
+        )
+    )
     has_wallet = any(x in low for x in ("wallet", "кошелек", "кошелёк"))
     has_cards = any(x in low for x in ("visa", "mastercard", "виртуальные карты", "card"))
+    has_virtual_cards = has_cards and any(
+        x in low for x in ("виртуальн", "virtual", "выпуск", "оформить карту", "issue card")
+    )
+    has_gaming_topup = any(x in low for x in ("steam", "playstation", "ps store", "xbox", "игровой баланс")) and any(
+        x in low for x in ("пополн", "оплат", "top up", "top-up", "gift card", "гифт-карт")
+    )
+    has_subscriptions = any(
+        x in low
+        for x in (
+            "зарубежные сервисы",
+            "зарубежных сервисов",
+            "международные сервисы",
+            "иностранные сервисы",
+            "оплата подписок",
+            "app store",
+            "google play",
+            "netflix",
+            "spotify",
+        )
+    )
+    has_crossborder = any(
+        x in low
+        for x in (
+            "международные платежи",
+            "международных платежей",
+            "оплата за рубежом",
+            "оплата за границей",
+            "cross-border",
+            "cross border",
+        )
+    )
     has_usdt = "usdt" in low or "tether" in low
     has_crypto = any(x in low for x in ("crypto", "крипто", "bitcoin", "btc", "blockchain", "tron", "trc20"))
     has_rub = any(x in low for x in ("rub", "руб", "рубль", "сбп", "карта"))
 
-    if not (has_usdt or has_crypto):
+    if not (
+        has_usdt
+        or has_crypto
+        or has_virtual_cards
+        or has_gaming_topup
+        or has_subscriptions
+        or has_crossborder
+    ):
         return "нецелевой", 1
 
     if has_exchange:
@@ -565,6 +633,15 @@ def classify_and_score(text, telegram, email):
     elif has_otc:
         sphere = "OTC / арбитраж"
         score += 3
+    elif has_virtual_cards:
+        sphere = "виртуальные карты"
+        score += 3
+    elif has_gaming_topup:
+        sphere = "игровые платежи / пополнение"
+        score += 3
+    elif has_crossborder or has_subscriptions:
+        sphere = "международные платежи"
+        score += 2
     elif has_fintech:
         sphere = "финтех / платежи"
         score += 2
@@ -575,6 +652,8 @@ def classify_and_score(text, telegram, email):
     if has_usdt and has_rub:
         score += 2
     if has_cards:
+        score += 1
+    if has_fintech or has_wallet:
         score += 1
     if telegram:
         score += 1
@@ -594,11 +673,28 @@ def is_target_project(title, text):
     if any(marker in title_low for marker in EDITORIAL_TITLE_MARKERS):
         return False
     has_crypto = any(marker in text_low for marker in ("usdt", "tether", "crypto", "крипто", "trc20"))
-    has_service = any(
+    has_crypto_service = any(
         marker in text_low
         for marker in ("обмен", "обмін", "exchange", "exchanger", "otc", "wallet", "кошелек", "кошелёк")
     )
-    return has_crypto and has_service
+    has_card_service = any(marker in text_low for marker in ("visa", "mastercard", "виртуальн", "virtual card")) and any(
+        marker in text_low for marker in ("выпуск", "оформ", "оплат", "issue", "payment", "пополн")
+    )
+    has_gaming_service = any(marker in text_low for marker in ("steam", "playstation", "ps store", "xbox")) and any(
+        marker in text_low for marker in ("пополн", "оплат", "top up", "top-up", "gift card")
+    )
+    has_crossborder_service = any(
+        marker in text_low
+        for marker in (
+            "зарубежные сервисы",
+            "зарубежных сервисов",
+            "международные платежи",
+            "оплата за рубежом",
+            "оплата подписок",
+            "cross-border",
+        )
+    )
+    return (has_crypto and has_crypto_service) or has_card_service or has_gaming_service or has_crossborder_service
 
 
 def scan_site(url, scan_pages=10):
@@ -763,7 +859,7 @@ def main():
     parser.add_argument("--queries", default=str(Path(__file__).with_name("queries.txt")))
     parser.add_argument("--out", default=str(Path(__file__).with_name("altyn_leads.csv")))
     parser.add_argument("--search-results", type=int, default=10)
-    parser.add_argument("--max-queries", type=int, default=5)
+    parser.add_argument("--max-queries", type=int, default=18)
     parser.add_argument("--scan-pages", type=int, default=10)
     parser.add_argument("--min-score", type=int, default=5)
     args = parser.parse_args()

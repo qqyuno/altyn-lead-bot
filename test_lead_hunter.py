@@ -8,6 +8,30 @@ import lead_hunter
 
 
 class TelegramContactTests(unittest.TestCase):
+    def test_accepts_virtual_card_service_without_exchange_keywords(self):
+        title = "Виртуальные карты Visa для международных сервисов"
+        text = "Выпуск виртуальной карты Visa, оплата подписок и пополнение через СБП."
+
+        self.assertTrue(lead_hunter.is_target_project(title, text))
+        sphere, score = lead_hunter.classify_and_score(text, ["@card_manager"], ["sales@cards.example"])
+        self.assertEqual(sphere, "виртуальные карты")
+        self.assertGreaterEqual(score, 6)
+
+    def test_accepts_steam_topup_service_without_crypto_keywords(self):
+        title = "Пополнение баланса Steam"
+        text = "Автоматическое пополнение Steam через СБП и Telegram-бота."
+
+        self.assertTrue(lead_hunter.is_target_project(title, text))
+        sphere, score = lead_hunter.classify_and_score(text, ["@steam_manager"], [])
+        self.assertEqual(sphere, "игровые платежи / пополнение")
+        self.assertGreaterEqual(score, 5)
+
+    def test_rejects_editorial_steam_instruction(self):
+        title = "Как пополнить Steam из России"
+        text = "Обзор способов пополнения Steam и сравнение комиссий."
+
+        self.assertFalse(lead_hunter.is_target_project(title, text))
+
     def test_prefers_partnership_contact_over_support_channel_and_bot(self):
         page = """
         <a href="https://t.me/demo_news">Новости и курсы</a>

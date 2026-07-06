@@ -1,14 +1,24 @@
 "онлайн обменник криптовалют" USDT RUB Telegram
+"виртуальная карта Visa" Telegram USDT
+"пополнение Steam" Telegram бот
+"международные платежи" Telegram USDT
 "обменный пункт электронных валют" USDT Telegram
-"создать заявку" "USDT" "RUB" обмен
-"отдаете" "получаете" USDT RUB обменник
-"резерв" "USDT" "СБП" обменник
-"обменять USDT" "СБП" контакты
-"USDT TRC20" "СБП" обмен
-"купить USDT" "продать USDT" онлайн обменник
+"выпуск виртуальных карт" Visa Telegram
+"пополнить Steam" СБП Telegram
+"оплата зарубежных сервисов" Telegram
 "OTC desk" USDT RUB Telegram
-"OTC обмен" USDT RUB контакты
-"криптообменник" USDT RUB Telegram
-"crypto exchanger" RUB USDT Telegram
+"карта Visa за криптовалюту" Telegram
+"пополнение PS Store" Telegram
+"оплата зарубежных подписок" Telegram
+"обменять USDT" СБП контакты
+"virtual card" USDT Telegram
+"пополнение игрового баланса" Telegram
+"cross-border payments" USDT Telegram
+"USDT TRC20" СБП обмен
 "платежный шлюз" USDT RUB контакты
+"купить USDT" "продать USDT" онлайн обменник
+"криптокарта" Visa Telegram
+"пополнение Xbox" Telegram
+"оплата App Store" Telegram
+"OTC обмен" USDT RUB контакты
 "crypto payment gateway" RUB USDT contact
