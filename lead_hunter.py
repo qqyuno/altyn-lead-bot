@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import concurrent.futures
 import csv
 import html
 import random
@@ -401,7 +402,7 @@ def normalize_duckduckgo_url(url):
 
 def search_duckduckgo(query, max_results):
     params = urllib.parse.urlencode({"q": query, "kl": "ru-ru"})
-    html_text = fetch(f"{DUCKDUCKGO_HTML_URL}?{params}", timeout=20)
+    html_text = fetch(f"{DUCKDUCKGO_HTML_URL}?{params}", timeout=12)
     parser = DuckDuckGoResultParser()
     parser.feed(html_text)
     results = []
@@ -430,29 +431,34 @@ def resolve_redirect(url, referer="", timeout=12):
 
 
 def search_bestchange_page(source_url, max_results):
-    html_text = fetch(source_url, timeout=20)
+    html_text = fetch(source_url, timeout=12)
     rows = re.findall(r'<tr[^>]+onclick="ccl\([^>]+>([\s\S]*?)</tr>', html_text, flags=re.I)
-    results = []
-    seen = set()
+    click_urls = []
     for row in rows:
         link_match = re.search(r'href="(/click\.php\?[^"]+)"', row, flags=re.I)
-        if not link_match:
-            continue
-        click_url = urllib.parse.urljoin(source_url, html.unescape(link_match.group(1)))
-        try:
-            url = resolve_redirect(click_url, referer=source_url, timeout=12)
-        except Exception:
-            continue
-        if not url or is_skipped(url):
-            continue
-        domain = domain_of(url)
-        if not domain or domain in seen or domain.endswith("bestchange.ru"):
-            continue
-        seen.add(domain)
-        results.append(url)
-        if len(results) >= max_results:
+        if link_match:
+            click_urls.append(urllib.parse.urljoin(source_url, html.unescape(link_match.group(1))))
+        if len(click_urls) >= max(max_results * 3, 6):
             break
-        time.sleep(0.25)
+
+    results = []
+    seen = set()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(click_urls) or 1)) as executor:
+        futures = [executor.submit(resolve_redirect, click_url, source_url, 10) for click_url in click_urls]
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                url = future.result()
+            except Exception:
+                continue
+            if not url or is_skipped(url):
+                continue
+            domain = domain_of(url)
+            if not domain or domain in seen or domain.endswith("bestchange.ru"):
+                continue
+            seen.add(domain)
+            results.append(url)
+            if len(results) >= max_results:
+                break
     return results
 
 
@@ -520,18 +526,18 @@ def search_monitoring_source(source_url, max_results, profile_limit=12):
 
     profiles = list(dict.fromkeys(profiles))
     random.shuffle(profiles)
-    for profile_url in profiles[:profile_limit]:
-        if len(results) >= max_results:
-            break
+
+    def scan_profile(profile_url):
+        candidates = []
         try:
             profile_html = fetch(profile_url, timeout=7)
         except Exception:
-            continue
+            return candidates
         for url, anchor_text in monitoring_links(profile_html, profile_url):
-            if len(results) >= max_results:
+            if len(candidates) >= 3:
                 break
             if domain_of(url) != source_domain:
-                add_monitor_candidate(results, seen, url, source_domain, max_results)
+                candidates.append(url)
                 continue
             path = urllib.parse.urlparse(url).path.lower()
             text_low = anchor_text.lower()
@@ -544,8 +550,23 @@ def search_monitoring_source(source_url, max_results, profile_limit=12):
                 resolved = resolve_redirect(url, referer=profile_url, timeout=8)
             except Exception:
                 continue
-            add_monitor_candidate(results, seen, resolved, source_domain, max_results)
-        time.sleep(0.15)
+            candidates.append(resolved)
+        return candidates
+
+    selected_profiles = profiles[:profile_limit]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(selected_profiles) or 1)) as executor:
+        futures = [executor.submit(scan_profile, profile_url) for profile_url in selected_profiles]
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                candidates = future.result()
+            except Exception:
+                continue
+            for candidate in candidates:
+                add_monitor_candidate(results, seen, candidate, source_domain, max_results)
+                if len(results) >= max_results:
+                    break
+            if len(results) >= max_results:
+                break
     return results
 
 
@@ -1026,21 +1047,45 @@ def main():
 
     def collect_candidates(candidates, source_cap=None):
         source_start = len(rows)
+        pending = []
         for url in candidates:
-            if len(rows) >= args.limit:
-                break
-            if source_cap is not None and len(rows) - source_start >= source_cap:
-                break
             domain = domain_of(url)
             if not domain or domain in seen_domains:
                 continue
             seen_domains.add(domain)
             print(f"Scanning: {domain}")
+            pending.append(url)
+
+        def scan_candidate(url):
             try:
-                row = scan_site(url, scan_pages=max(1, min(12, args.scan_pages)))
+                return scan_site(url, scan_pages=max(1, min(8, args.scan_pages))), ""
             except Exception as exc:
-                print(f"Scan failed: {exc}")
-                continue
+                return None, str(exc)
+
+        scanned = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(5, len(pending) or 1)) as executor:
+            future_urls = {executor.submit(scan_candidate, url): url for url in pending}
+            for future in concurrent.futures.as_completed(future_urls):
+                row, error = future.result()
+                if error:
+                    print(f"Scan failed ({domain_of(future_urls[future])}): {error}")
+                    continue
+                if row:
+                    scanned.append(row)
+
+        scanned.sort(
+            key=lambda item: (
+                bool(item.get("Telegram")),
+                int(item["Оценка 1-10 для покупки франшизы"]),
+            ),
+            reverse=True,
+        )
+
+        for row in scanned:
+            if len(rows) >= args.limit:
+                break
+            if source_cap is not None and len(rows) - source_start >= source_cap:
+                break
             if not has_required_contact(row):
                 continue
             if row["Сфера"] == "нецелевой":
@@ -1053,7 +1098,6 @@ def main():
             keys.add(key)
             rows.append(row)
             print(f"Added: {row['Название проекта']} / {row['Оценка 1-10 для покупки франшизы']}")
-            time.sleep(0.4)
 
     print("Searching: BestChange exchangers")
     bestchange_quota = max(1, (args.limit + 2) // 3)
