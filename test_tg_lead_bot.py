@@ -10,7 +10,7 @@ class CollectionReportTests(unittest.TestCase):
 
         self.assertEqual(tg_lead_bot.parsed_collection_counts(output, 0), (3, 7))
 
-    def test_work_queue_hides_historical_email_only_leads(self):
+    def test_work_queue_prioritizes_telegram_then_keeps_email_fallback(self):
         email_only = {
             "Название проекта": "Email only",
             "Telegram": "",
@@ -27,7 +27,10 @@ class CollectionReportTests(unittest.TestCase):
         with patch.object(tg_lead_bot, "load_rows", return_value=[email_only, telegram_lead]):
             rows = tg_lead_bot.ranked_rows()
 
-        self.assertEqual([row["Название проекта"] for row in rows], ["Telegram lead"])
+        self.assertEqual(
+            [row["Название проекта"] for row in rows],
+            ["Telegram lead", "Email only"],
+        )
 
 
 if __name__ == "__main__":

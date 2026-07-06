@@ -324,8 +324,8 @@ def telegram_url(value):
 
 def ranked_rows():
     return sorted(
-        [row for row in load_rows() if telegram_url(row.get("Telegram", ""))],
-        key=score_of,
+        load_rows(),
+        key=lambda row: (bool(telegram_url(row.get("Telegram", ""))), score_of(row)),
         reverse=True,
     )
 

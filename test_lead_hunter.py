@@ -125,13 +125,14 @@ class TelegramContactTests(unittest.TestCase):
 
         self.assertEqual(len(rows), 2)
 
-    def test_requires_telegram_by_default(self):
+    def test_accepts_email_when_telegram_is_missing(self):
         email_only = {"Telegram": "", "Email": "sales@demo.exchange"}
         with_telegram = {"Telegram": "@demo_partner", "Email": "sales@demo.exchange"}
+        without_contacts = {"Telegram": "", "Email": ""}
 
-        self.assertFalse(lead_hunter.has_required_contact(email_only))
+        self.assertTrue(lead_hunter.has_required_contact(email_only))
         self.assertTrue(lead_hunter.has_required_contact(with_telegram))
-        self.assertTrue(lead_hunter.has_required_contact(email_only, allow_email_only=True))
+        self.assertFalse(lead_hunter.has_required_contact(without_contacts))
 
 
 if __name__ == "__main__":
