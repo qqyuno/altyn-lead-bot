@@ -2,6 +2,7 @@
 import argparse
 import csv
 import html
+import random
 import re
 import sys
 import time
@@ -12,7 +13,26 @@ from pathlib import Path
 
 
 BING_SEARCH_URL = "https://www.bing.com/search"
-BESTCHANGE_URL = "https://www.bestchange.ru/tether-trc20-to-sberbank.html"
+BESTCHANGE_URLS = (
+    "https://www.bestchange.ru/tether-trc20-to-sberbank.html",
+    "https://www.bestchange.ru/sberbank-to-tether-trc20.html",
+    "https://www.bestchange.ru/tether-trc20-to-tinkoff.html",
+    "https://www.bestchange.ru/tinkoff-to-tether-trc20.html",
+    "https://www.bestchange.ru/tether-trc20-to-cash-ruble.html",
+    "https://www.bestchange.ru/cash-ruble-to-tether-trc20.html",
+    "https://www.bestchange.ru/tether-trc20-to-visa-mastercard-rub.html",
+    "https://www.bestchange.ru/visa-mastercard-rub-to-tether-trc20.html",
+)
+MONITORING_SOURCES = (
+    ("OKChanger", "https://www.okchanger.ru/"),
+    ("OKChanger list", "https://www.okchanger.ru/exchangers"),
+    ("WellCrypto", "https://wellcrypto.io/ru/exchangers/monitoring/"),
+    ("KursExpert", "https://kurs.expert/"),
+    ("Exnode", "https://exnode.ru/"),
+    ("RateEx", "https://rateex.ru/"),
+    ("Glazok", "https://glazok.org/"),
+    ("MonitObmen", "https://monitobmen.ru/"),
+)
 DUCKDUCKGO_HTML_URL = "https://html.duckduckgo.com/html/"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -70,9 +90,17 @@ SKIP_DOMAINS = {
     "bestchange.ru",
     "exchangesumo.com",
     "google.com",
+    "glazok.org",
     "kurs.expert",
     "minfin.com.ua",
     "monitoring-obmennikov.ru",
+    "monitobmen.ru",
+    "okchanger.com",
+    "okchanger.ru",
+    "rateex.ru",
+    "wellcrypto.io",
+    "exnode.io",
+    "exnode.ru",
     "yandex.ru",
     "telegram.org",
     "t.me",
@@ -96,6 +124,28 @@ SKIP_DOMAINS = {
 }
 
 BLOCKED_DOMAIN_SUFFIXES = (".ua", ".ge")
+
+MONITOR_PROFILE_MARKERS = (
+    "/exchange/",
+    "/exchanger/",
+    "/exchangers/",
+    "/obmennik/",
+    "/review/",
+    "/service/",
+)
+MONITOR_OUTBOUND_TEXT_MARKERS = (
+    "continue",
+    "exchange",
+    "go to",
+    "site",
+    "website",
+    "обменять",
+    "перейти",
+    "продолжить",
+    "сайт",
+    "ссылка",
+)
+MONITOR_REDIRECT_PATH_MARKERS = ("/click", "/go/", "/out/", "/redirect")
 
 NON_TARGET_MARKERS = (
     "агрегатор обменников",
@@ -285,6 +335,14 @@ def clean_url(url):
     return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
 
 
+def navigation_url(url):
+    url = html.unescape(url)
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return ""
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", parsed.query, ""))
+
+
 def is_skipped(url):
     domain = domain_of(url)
     if domain.endswith(BLOCKED_DOMAIN_SUFFIXES):
@@ -371,8 +429,8 @@ def resolve_redirect(url, referer=""):
         return clean_url(response.geturl())
 
 
-def search_bestchange(max_results):
-    html_text = fetch(BESTCHANGE_URL, timeout=20)
+def search_bestchange_page(source_url, max_results):
+    html_text = fetch(source_url, timeout=20)
     rows = re.findall(r'<tr[^>]+onclick="ccl\([^>]+>([\s\S]*?)</tr>', html_text, flags=re.I)
     results = []
     seen = set()
@@ -380,9 +438,9 @@ def search_bestchange(max_results):
         link_match = re.search(r'href="(/click\.php\?[^"]+)"', row, flags=re.I)
         if not link_match:
             continue
-        click_url = urllib.parse.urljoin(BESTCHANGE_URL, html.unescape(link_match.group(1)))
+        click_url = urllib.parse.urljoin(source_url, html.unescape(link_match.group(1)))
         try:
-            url = resolve_redirect(click_url, referer=BESTCHANGE_URL)
+            url = resolve_redirect(click_url, referer=source_url)
         except Exception:
             continue
         if not url or is_skipped(url):
@@ -395,6 +453,99 @@ def search_bestchange(max_results):
         if len(results) >= max_results:
             break
         time.sleep(0.25)
+    return results
+
+
+def search_bestchange(max_results):
+    results = []
+    seen = set()
+    urls = list(BESTCHANGE_URLS)
+    random.shuffle(urls)
+    for source_url in urls:
+        if len(results) >= max_results:
+            break
+        try:
+            candidates = search_bestchange_page(source_url, max_results - len(results))
+        except Exception:
+            continue
+        for url in candidates:
+            domain = domain_of(url)
+            if not domain or domain in seen:
+                continue
+            seen.add(domain)
+            results.append(url)
+    return results
+
+
+def monitoring_links(html_text, current_url):
+    results = []
+    for href, text in parse_site_links(html_text):
+        url = navigation_url(urllib.parse.urljoin(current_url, href))
+        if url:
+            results.append((url, text))
+    return results
+
+
+def is_monitor_profile(url, source_domain):
+    if domain_of(url) != source_domain:
+        return False
+    path = urllib.parse.urlparse(url).path.lower()
+    return any(marker in path for marker in MONITOR_PROFILE_MARKERS)
+
+
+def add_monitor_candidate(results, seen, url, source_domain, max_results):
+    if len(results) >= max_results:
+        return
+    candidate = clean_url(url)
+    domain = domain_of(candidate)
+    if not candidate or not domain or domain == source_domain or domain in seen or is_skipped(candidate):
+        return
+    seen.add(domain)
+    results.append(candidate)
+
+
+def search_monitoring_source(source_url, max_results, profile_limit=20):
+    source_domain = domain_of(source_url)
+    html_text = fetch(source_url, timeout=20)
+    links = monitoring_links(html_text, source_url)
+    results = []
+    seen = set()
+    profiles = []
+
+    for url, _ in links:
+        if domain_of(url) != source_domain:
+            add_monitor_candidate(results, seen, url, source_domain, max_results)
+        elif is_monitor_profile(url, source_domain):
+            profiles.append(url)
+
+    profiles = list(dict.fromkeys(profiles))
+    random.shuffle(profiles)
+    for profile_url in profiles[:profile_limit]:
+        if len(results) >= max_results:
+            break
+        try:
+            profile_html = fetch(profile_url, timeout=15)
+        except Exception:
+            continue
+        for url, anchor_text in monitoring_links(profile_html, profile_url):
+            if len(results) >= max_results:
+                break
+            if domain_of(url) != source_domain:
+                add_monitor_candidate(results, seen, url, source_domain, max_results)
+                continue
+            path = urllib.parse.urlparse(url).path.lower()
+            text_low = anchor_text.lower()
+            looks_outbound = any(marker in path for marker in MONITOR_REDIRECT_PATH_MARKERS) or any(
+                marker in text_low for marker in MONITOR_OUTBOUND_TEXT_MARKERS
+            )
+            if not looks_outbound:
+                continue
+            try:
+                resolved = resolve_redirect(url, referer=profile_url)
+            except Exception:
+                continue
+            add_monitor_candidate(results, seen, resolved, source_domain, max_results)
+        time.sleep(0.15)
     return results
 
 
@@ -902,10 +1053,27 @@ def main():
 
     print("Searching: BestChange exchangers")
     try:
-        bestchange_candidates = search_bestchange(max(args.limit * 3, 30))
+        bestchange_candidates = search_bestchange(max(args.limit * 4, 40))
         collect_candidates(bestchange_candidates)
     except Exception as exc:
         print(f"BestChange search failed: {exc}")
+
+    monitoring_sources = list(MONITORING_SOURCES)
+    random.shuffle(monitoring_sources)
+    for source_name, source_url in monitoring_sources:
+        if len(rows) >= args.limit:
+            break
+        print(f"Searching monitoring: {source_name}")
+        try:
+            candidates = search_monitoring_source(
+                source_url,
+                max_results=max(args.limit * 2, 20),
+                profile_limit=max(args.limit, 12),
+            )
+        except Exception as exc:
+            print(f"Monitoring search failed ({source_name}): {exc}")
+            continue
+        collect_candidates(candidates)
 
     for query in queries[: args.max_queries]:
         if len(rows) >= args.limit:

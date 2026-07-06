@@ -32,6 +32,26 @@ class TelegramContactTests(unittest.TestCase):
 
         self.assertFalse(lead_hunter.is_target_project(title, text))
 
+    def test_extracts_final_project_site_from_monitoring_profile(self):
+        pages = {
+            "https://monitor.example/": '<a href="/exchangers/demo">Demo exchanger</a>',
+            "https://monitor.example/exchangers/demo": '<a href="/go/demo?id=42">Ссылка на сайт</a>',
+        }
+        resolved_links = []
+
+        def resolve(url, referer=""):
+            resolved_links.append(url)
+            return "https://demo.exchange/"
+
+        with (
+            patch.object(lead_hunter, "fetch", side_effect=lambda url, timeout=5: pages.get(url, "")),
+            patch.object(lead_hunter, "resolve_redirect", side_effect=resolve),
+        ):
+            rows = lead_hunter.search_monitoring_source("https://monitor.example/", 10)
+
+        self.assertEqual(rows, ["https://demo.exchange/"])
+        self.assertEqual(resolved_links, ["https://monitor.example/go/demo?id=42"])
+
     def test_prefers_partnership_contact_over_support_channel_and_bot(self):
         page = """
         <a href="https://t.me/demo_news">Новости и курсы</a>
