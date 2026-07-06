@@ -1018,14 +1018,18 @@ def main():
     queries = read_lines(args.queries)
     if not queries:
         raise SystemExit("No queries found.")
+    random.shuffle(queries)
 
     keys = existing_keys(args.out)
     rows = []
     seen_domains = set()
 
-    def collect_candidates(candidates):
+    def collect_candidates(candidates, source_cap=None):
+        source_start = len(rows)
         for url in candidates:
             if len(rows) >= args.limit:
+                break
+            if source_cap is not None and len(rows) - source_start >= source_cap:
                 break
             domain = domain_of(url)
             if not domain or domain in seen_domains:
@@ -1052,16 +1056,22 @@ def main():
             time.sleep(0.4)
 
     print("Searching: BestChange exchangers")
+    bestchange_quota = max(1, (args.limit + 2) // 3)
     try:
         bestchange_candidates = search_bestchange(max(args.limit * 4, 40))
-        collect_candidates(bestchange_candidates)
+        collect_candidates(bestchange_candidates, source_cap=bestchange_quota)
     except Exception as exc:
         print(f"BestChange search failed: {exc}")
 
     monitoring_sources = list(MONITORING_SOURCES)
     random.shuffle(monitoring_sources)
+    monitoring_quota = max(1, (args.limit + 2) // 3)
+    monitoring_start = len(rows)
     for source_name, source_url in monitoring_sources:
         if len(rows) >= args.limit:
+            break
+        monitoring_remaining = monitoring_quota - (len(rows) - monitoring_start)
+        if monitoring_remaining <= 0:
             break
         print(f"Searching monitoring: {source_name}")
         try:
@@ -1073,7 +1083,7 @@ def main():
         except Exception as exc:
             print(f"Monitoring search failed ({source_name}): {exc}")
             continue
-        collect_candidates(candidates)
+        collect_candidates(candidates, source_cap=monitoring_remaining)
 
     for query in queries[: args.max_queries]:
         if len(rows) >= args.limit:
