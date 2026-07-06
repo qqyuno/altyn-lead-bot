@@ -420,12 +420,12 @@ def search_duckduckgo(query, max_results):
     return results
 
 
-def resolve_redirect(url, referer=""):
+def resolve_redirect(url, referer="", timeout=12):
     headers = {"User-Agent": USER_AGENT}
     if referer:
         headers["Referer"] = referer
     request = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(request, timeout=20) as response:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         return clean_url(response.geturl())
 
 
@@ -440,7 +440,7 @@ def search_bestchange_page(source_url, max_results):
             continue
         click_url = urllib.parse.urljoin(source_url, html.unescape(link_match.group(1)))
         try:
-            url = resolve_redirect(click_url, referer=source_url)
+            url = resolve_redirect(click_url, referer=source_url, timeout=12)
         except Exception:
             continue
         if not url or is_skipped(url):
@@ -504,9 +504,9 @@ def add_monitor_candidate(results, seen, url, source_domain, max_results):
     results.append(candidate)
 
 
-def search_monitoring_source(source_url, max_results, profile_limit=20):
+def search_monitoring_source(source_url, max_results, profile_limit=12):
     source_domain = domain_of(source_url)
-    html_text = fetch(source_url, timeout=20)
+    html_text = fetch(source_url, timeout=12)
     links = monitoring_links(html_text, source_url)
     results = []
     seen = set()
@@ -524,7 +524,7 @@ def search_monitoring_source(source_url, max_results, profile_limit=20):
         if len(results) >= max_results:
             break
         try:
-            profile_html = fetch(profile_url, timeout=15)
+            profile_html = fetch(profile_url, timeout=7)
         except Exception:
             continue
         for url, anchor_text in monitoring_links(profile_html, profile_url):
@@ -541,7 +541,7 @@ def search_monitoring_source(source_url, max_results, profile_limit=20):
             if not looks_outbound:
                 continue
             try:
-                resolved = resolve_redirect(url, referer=profile_url)
+                resolved = resolve_redirect(url, referer=profile_url, timeout=8)
             except Exception:
                 continue
             add_monitor_candidate(results, seen, resolved, source_domain, max_results)
@@ -1009,7 +1009,7 @@ def main():
     parser.add_argument("--limit", type=int, default=30)
     parser.add_argument("--queries", default=str(Path(__file__).with_name("queries.txt")))
     parser.add_argument("--out", default=str(Path(__file__).with_name("altyn_leads.csv")))
-    parser.add_argument("--search-results", type=int, default=10)
+    parser.add_argument("--search-results", type=int, default=6)
     parser.add_argument("--max-queries", type=int, default=18)
     parser.add_argument("--scan-pages", type=int, default=10)
     parser.add_argument("--min-score", type=int, default=5)
@@ -1058,13 +1058,15 @@ def main():
     print("Searching: BestChange exchangers")
     bestchange_quota = max(1, (args.limit + 2) // 3)
     try:
-        bestchange_candidates = search_bestchange(max(args.limit * 4, 40))
+        bestchange_candidates = search_bestchange(max(bestchange_quota * 3, 8))
         collect_candidates(bestchange_candidates, source_cap=bestchange_quota)
     except Exception as exc:
         print(f"BestChange search failed: {exc}")
 
-    monitoring_sources = list(MONITORING_SOURCES)
-    random.shuffle(monitoring_sources)
+    primary_monitorings = list(MONITORING_SOURCES[:4])
+    extra_monitorings = list(MONITORING_SOURCES[4:])
+    random.shuffle(extra_monitorings)
+    monitoring_sources = primary_monitorings + extra_monitorings[:2]
     monitoring_quota = max(1, (args.limit + 2) // 3)
     monitoring_start = len(rows)
     for source_name, source_url in monitoring_sources:
@@ -1077,8 +1079,8 @@ def main():
         try:
             candidates = search_monitoring_source(
                 source_url,
-                max_results=max(args.limit * 2, 20),
-                profile_limit=max(args.limit, 12),
+                max_results=max(monitoring_remaining * 2, 4),
+                profile_limit=max(monitoring_remaining * 3, 6),
             )
         except Exception as exc:
             print(f"Monitoring search failed ({source_name}): {exc}")

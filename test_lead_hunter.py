@@ -39,7 +39,7 @@ class TelegramContactTests(unittest.TestCase):
         }
         resolved_links = []
 
-        def resolve(url, referer=""):
+        def resolve(url, referer="", timeout=12):
             resolved_links.append(url)
             return "https://demo.exchange/"
 
