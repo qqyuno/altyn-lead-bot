@@ -288,8 +288,10 @@ def lead_reason(row):
         reasons.append("похож на обменник")
     elif "otc" in sphere or "арбитраж" in sphere:
         reasons.append("похож на OTC/P2P-команду")
+    elif "трафик" in sphere:
+        reasons.append("есть шанс, что умеют покупать/монетизировать трафик")
     elif "финтех" in sphere or "платеж" in sphere:
-        reasons.append("похож на финтех/платежный проект")
+        reasons.append("скорее партнер/инфраструктура, не основной лид")
     if telegram_url(row.get("Telegram", "")):
         reasons.append("есть Telegram для быстрого контакта")
     if row.get("Email"):

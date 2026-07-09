@@ -165,6 +165,9 @@ NON_TARGET_MARKERS = (
     "новости криптовалют",
     "обзоры криптовалют",
     "рейтинги криптобирж",
+    "crypto news",
+    "cryptocurrency news",
+    "what is cryptocurrency",
 )
 
 TARGET_TITLE_MARKERS = (
@@ -190,6 +193,14 @@ TARGET_TITLE_MARKERS = (
     "оплат",
     "пополн",
     "подпис",
+    "p2p",
+    "арбитраж",
+    "трафик",
+    "traffic",
+    "affiliate",
+    "cpa",
+    "webmaster",
+    "вебмастер",
 )
 
 EDITORIAL_TITLE_MARKERS = (
@@ -210,6 +221,111 @@ EDITORIAL_TITLE_MARKERS = (
     "криптобиржи, обменники",
     "лучшие обменники",
     "список обменников",
+)
+
+RUBLE_MARKET_MARKERS = (
+    "rub",
+    ".ru",
+    ".рф",
+    "руб",
+    "рубль",
+    "рублей",
+    "сбп",
+    "мир",
+    "карта мир",
+    "россия",
+    "рф",
+    "русский",
+    "русск",
+    "рунет",
+    "москва",
+    "санкт-петербург",
+    "спб",
+    "russian traffic",
+    "ru traffic",
+)
+
+EXCHANGE_MARKERS = (
+    "обменник",
+    "криптообменник",
+    "обменять usdt",
+    "купить usdt",
+    "продать usdt",
+    "отдаете",
+    "получаете",
+    "создать заявку",
+    "заявка на обмен",
+    "резерв",
+    "reserve",
+    "exchanger",
+    "currency exchange",
+    "crypto exchange",
+)
+
+OTC_P2P_MARKERS = (
+    "otc",
+    "p2p",
+    "p2p desk",
+    "p2p trading",
+    "p2p арбитраж",
+    "крипто арбитраж",
+    "арбитраж криптовалют",
+    "обнал",
+    "наличные",
+)
+
+TRAFFIC_TEAM_MARKERS = (
+    "арбитраж трафика",
+    "traffic arbitrage",
+    "crypto traffic",
+    "финансовый трафик",
+    "cpa",
+    "cpa network",
+    "affiliate",
+    "affiliate marketing",
+    "партнерская программа",
+    "партнёрская программа",
+    "вебмастер",
+    "webmaster",
+    "leadgen",
+    "лидогенерация",
+    "telegram channel",
+    "телеграм канал",
+    "крипто канал",
+)
+
+PAYMENT_INFRA_MARKERS = (
+    "payment gateway",
+    "crypto payment gateway",
+    "accept crypto payments",
+    "merchant",
+    "merchants",
+    "checkout",
+    "invoice",
+    "invoices",
+    "e-commerce",
+    "ecommerce",
+    "plugins",
+    "plugin",
+    "mass payouts",
+    "payouts",
+    "pay-in",
+    "pay-out",
+    "эквайринг",
+    "платежный шлюз",
+    "платёжный шлюз",
+    "прием платежей",
+    "приём платежей",
+)
+
+LOW_INTENT_INFRA_MARKERS = (
+    "gift card",
+    "gift cards",
+    "подарочные карты",
+    "licensed",
+    "mica",
+    "global businesses",
+    "global business",
 )
 
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}")
@@ -728,6 +844,10 @@ def discover_contact_pages(html_text, current_url, root):
     return list(dict.fromkeys(candidates))
 
 
+def contains_any(text, markers):
+    return any(marker in text for marker in markers)
+
+
 def classify_and_score(text, telegram, email):
     low = text.lower()
     score = 1
@@ -736,22 +856,12 @@ def classify_and_score(text, telegram, email):
     if any(marker in low for marker in NON_TARGET_MARKERS):
         return "нецелевой", 1
 
-    has_exchange = any(x in low for x in ("обменник", "обмен usdt", "exchanger", "exchange"))
-    has_otc = any(x in low for x in ("otc", "p2p", "арбитраж"))
-    has_fintech = any(
-        x in low
-        for x in (
-            "payment",
-            "gateway",
-            "эквайринг",
-            "платежный шлюз",
-            "платёжный шлюз",
-            "платежный сервис",
-            "платёжный сервис",
-            "pay-in",
-            "pay-out",
-        )
-    )
+    has_exchange = contains_any(low, EXCHANGE_MARKERS)
+    has_otc = contains_any(low, OTC_P2P_MARKERS)
+    has_traffic_team = contains_any(low, TRAFFIC_TEAM_MARKERS)
+    has_payment_infra = contains_any(low, PAYMENT_INFRA_MARKERS)
+    has_low_intent_infra = contains_any(low, LOW_INTENT_INFRA_MARKERS)
+    has_fintech = has_payment_infra
     has_wallet = any(x in low for x in ("wallet", "кошелек", "кошелёк"))
     has_cards = any(x in low for x in ("visa", "mastercard", "виртуальные карты", "card"))
     has_virtual_cards = has_cards and any(
@@ -787,7 +897,7 @@ def classify_and_score(text, telegram, email):
     )
     has_usdt = "usdt" in low or "tether" in low
     has_crypto = any(x in low for x in ("crypto", "крипто", "bitcoin", "btc", "blockchain", "tron", "trc20"))
-    has_rub = any(x in low for x in ("rub", "руб", "рубль", "сбп", "карта"))
+    has_ruble_market = contains_any(low, RUBLE_MARKET_MARKERS)
 
     if not (
         has_usdt
@@ -799,11 +909,17 @@ def classify_and_score(text, telegram, email):
     ):
         return "нецелевой", 1
 
-    if has_exchange:
+    if has_payment_infra and not (has_exchange or has_otc):
+        sphere = "платежная инфраструктура / партнер"
+        score += 1
+    elif has_exchange:
         sphere = "криптообменник"
-        score += 3
+        score += 4
     elif has_otc:
-        sphere = "OTC / арбитраж"
+        sphere = "OTC / P2P / арбитраж"
+        score += 4
+    elif has_traffic_team:
+        sphere = "команда с трафиком"
         score += 3
     elif has_virtual_cards:
         sphere = "виртуальные карты"
@@ -821,8 +937,10 @@ def classify_and_score(text, telegram, email):
         sphere = "криптокошелек"
         score += 2
 
-    if has_usdt and has_rub:
+    if has_usdt and has_ruble_market:
         score += 2
+    elif has_crypto and has_ruble_market:
+        score += 1
     if has_cards:
         score += 1
     if has_fintech or has_wallet:
@@ -833,6 +951,19 @@ def classify_and_score(text, telegram, email):
         score += 1
     if any(x in low for x in ("резерв", "reserve", "отзывы", "reviews", "support")):
         score += 1
+    if has_traffic_team and (has_usdt or has_crypto):
+        score += 1
+    if has_payment_infra:
+        score -= 2
+    if has_low_intent_infra:
+        score -= 1
+
+    if not has_ruble_market and sphere in ("криптообменник", "OTC / P2P / арбитраж", "команда с трафиком"):
+        score = min(score, 7)
+    if sphere == "платежная инфраструктура / партнер":
+        score = min(score, 5)
+    if has_low_intent_infra and sphere == "платежная инфраструктура / партнер":
+        score = min(score, 4)
 
     return sphere, max(1, min(10, score))
 
@@ -847,7 +978,23 @@ def is_target_project(title, text):
     has_crypto = any(marker in text_low for marker in ("usdt", "tether", "crypto", "крипто", "trc20"))
     has_crypto_service = any(
         marker in text_low
-        for marker in ("обмен", "обмін", "exchange", "exchanger", "otc", "wallet", "кошелек", "кошелёк")
+        for marker in (
+            "обмен",
+            "обмін",
+            "exchange",
+            "exchanger",
+            "otc",
+            "p2p",
+            "wallet",
+            "кошелек",
+            "кошелёк",
+            "арбитраж",
+            "traffic",
+            "трафик",
+            "affiliate",
+            "cpa",
+            "вебмастер",
+        )
     )
     has_card_service = any(marker in text_low for marker in ("visa", "mastercard", "виртуальн", "virtual card")) and any(
         marker in text_low for marker in ("выпуск", "оформ", "оплат", "issue", "payment", "пополн")
@@ -934,8 +1081,34 @@ def existing_keys(csv_path):
     with path.open("r", encoding="utf-8-sig", newline="") as file:
         reader = csv.DictReader(file)
         for row in reader:
-            key = "|".join((row.get("Название проекта", ""), row.get("Telegram", ""), row.get("Email", ""))).lower()
-            keys.add(key)
+            keys.update(row_keys(row))
+    return keys
+
+
+def split_contacts(value):
+    return [part.strip().lower() for part in (value or "").split(",") if part.strip()]
+
+
+def row_keys(row):
+    keys = set()
+    name = (row.get("Название проекта") or "").strip().lower()
+    if name:
+        keys.add("name:" + name)
+    for handle in split_contacts(row.get("Telegram", "")):
+        keys.add("tg:" + handle)
+    for email in split_contacts(row.get("Email", "")):
+        keys.add("email:" + email)
+    if not keys:
+        keys.add(
+            "raw:"
+            + "|".join(
+                (
+                    row.get("Название проекта", ""),
+                    row.get("Telegram", ""),
+                    row.get("Email", ""),
+                )
+            ).lower()
+        )
     return keys
 
 
@@ -1092,11 +1265,12 @@ def main():
                 continue
             if int(row["Оценка 1-10 для покупки франшизы"]) < args.min_score:
                 continue
-            key = "|".join((row["Название проекта"], row["Telegram"], row["Email"])).lower()
-            if key in keys:
+            new_keys = row_keys(row)
+            if keys.intersection(new_keys):
                 continue
-            keys.add(key)
+            keys.update(new_keys)
             rows.append(row)
+            upsert_rows(args.out, [row])
             print(f"Added: {row['Название проекта']} / {row['Оценка 1-10 для покупки франшизы']}")
 
     print("Searching: BestChange exchangers")
@@ -1144,8 +1318,7 @@ def main():
             continue
         collect_candidates(candidates)
 
-    added, updated = upsert_rows(args.out, rows)
-    print(f"Done. Added {added} leads, updated {updated} leads in {args.out}")
+    print(f"Done. Collected {len(rows)} leads in {args.out}")
 
 
 if __name__ == "__main__":

@@ -1,24 +1,55 @@
+# Ядро: РФ обменники и OTC под RUB/СБП/МИР.
 "онлайн обменник криптовалют" USDT RUB Telegram
-"виртуальная карта Visa" Telegram USDT
-"пополнение Steam" Telegram бот
-"международные платежи" Telegram USDT
-"обменный пункт электронных валют" USDT Telegram
-"выпуск виртуальных карт" Visa Telegram
-"пополнить Steam" СБП Telegram
-"оплата зарубежных сервисов" Telegram
+"обменный пункт электронных валют" USDT RUB Telegram
+"резерв" "USDT" "СБП" обменник
+"OTC обмен" USDT RUB Telegram
 "OTC desk" USDT RUB Telegram
+"P2P обмен" USDT RUB Telegram
+"обменять USDT" "СБП" контакты
+"USDT TRC20" "СБП" обмен
+"купить USDT" "продать USDT" RUB обменник
+"отдаете" "получаете" USDT RUB обменник
+"создать заявку" "USDT" "RUB" обмен
+"криптообменник" USDT RUB Telegram
+"crypto exchanger" RUB USDT Telegram
+"обменник криптовалют" "карта МИР" USDT
+"обмен USDT" "рубли" Telegram
+"обменник Москва" USDT RUB Telegram
+"обменник Санкт-Петербург" USDT RUB Telegram
+
+# РФ P2P/арбитраж/наличные.
+"P2P арбитраж" USDT RUB Telegram
+"крипто арбитраж" USDT RUB Telegram
+"OTC USDT" RUB Москва Telegram
+"OTC USDT" RUB СПБ Telegram
+"USDT наличные" Москва Telegram
+"USDT наличные" Санкт-Петербург Telegram
+"обмен USDT наличные" Telegram
+
+# Команды с РФ/рублевым трафиком: не обменники, но могут купить витрину под монетизацию аудитории.
+"арбитраж трафика" крипта Россия Telegram
+"арбитраж трафика" финансы Россия Telegram
+"финансовый трафик" крипта CPA Telegram
+"crypto traffic" "ru traffic" affiliate Telegram
+"CPA network" finance crypto RU contact
+"вебмастер" крипта CPA Россия Telegram
+"лидогенерация" крипта финансы Telegram
+"крипто канал" USDT реклама Telegram
+"telegram канал" криптовалюта реклама контакты
+
+# Дополнительно: РФ-сервисы с платежным/крипто-трафиком.
+"виртуальная карта Visa" Telegram USDT
+"выпуск виртуальных карт" Visa Telegram
 "карта Visa за криптовалюту" Telegram
-"пополнение PS Store" Telegram
-"оплата зарубежных подписок" Telegram
-"обменять USDT" СБП контакты
-"virtual card" USDT Telegram
-"пополнение игрового баланса" Telegram
-"cross-border payments" USDT Telegram
-"USDT TRC20" СБП обмен
-"платежный шлюз" USDT RUB контакты
-"купить USDT" "продать USDT" онлайн обменник
 "криптокарта" Visa Telegram
+"пополнить Steam" СБП Telegram
+"пополнение Steam" Telegram бот
+"пополнение PS Store" Telegram
 "пополнение Xbox" Telegram
+"пополнение игрового баланса" Telegram
+"оплата зарубежных сервисов" Telegram
+"оплата зарубежных подписок" Telegram
 "оплата App Store" Telegram
-"OTC обмен" USDT RUB контакты
-"crypto payment gateway" RUB USDT contact
+"международные платежи" Telegram USDT
+"cross-border payments" USDT Telegram
+"virtual card" USDT Telegram
