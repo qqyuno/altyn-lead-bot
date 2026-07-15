@@ -8,6 +8,47 @@ import lead_hunter
 
 
 class TelegramContactTests(unittest.TestCase):
+    def test_accepts_crypto_blogger_with_public_audience(self):
+        title = "Криптоблогер и Telegram-канал о трейдинге"
+        text = "Автор ведет крипто канал для 25000 подписчиков: Bitcoin, USDT и обзоры рынка. По вопросам сотрудничества пишите менеджеру."
+
+        self.assertTrue(lead_hunter.is_target_project(title, text))
+        sphere, score = lead_hunter.classify_and_score(text, ["@crypto_partner"], [])
+        self.assertEqual(sphere, "криптоблогер / сообщество")
+        self.assertGreaterEqual(score, 6)
+
+    def test_accepts_web3_startup_without_existing_exchange(self):
+        title = "Web3 стартап для международных платежей"
+        text = "Основатель Web3 startup развивает продукт для крипто-аудитории и ищет платежную инфраструктуру USDT."
+
+        self.assertTrue(lead_hunter.is_target_project(title, text))
+        sphere, score = lead_hunter.classify_and_score(text, ["@web3_founder"], ["hello@startup.example"])
+        self.assertEqual(sphere, "крипто / финтех стартап")
+        self.assertGreaterEqual(score, 7)
+
+    def test_accepts_crypto_trading_team(self):
+        title = "Команда трейдеров и P2P арбитраж"
+        text = "Команда трейдеров работает с USDT, ведет Telegram и развивает собственное крипто-комьюнити."
+
+        self.assertTrue(lead_hunter.is_target_project(title, text))
+        sphere, score = lead_hunter.classify_and_score(text, ["@trading_team"], [])
+        self.assertEqual(sphere, "трейдинг / арбитражная команда")
+        self.assertGreaterEqual(score, 6)
+
+    def test_accepts_crypto_blogger_with_personal_name_in_title(self):
+        title = "Иван Петров — официальный сайт"
+        text = "Криптоблогер и трейдер ведет Telegram-канал для аудитории, которая работает с Bitcoin и USDT."
+
+        self.assertTrue(lead_hunter.is_target_project(title, text))
+
+    def test_rejects_generic_marketing_agency_without_crypto(self):
+        title = "Media buying команда"
+        text = "Агентство приводит платный трафик для ресторанов и салонов красоты."
+
+        self.assertFalse(lead_hunter.is_target_project(title, text))
+        sphere, score = lead_hunter.classify_and_score(text, ["@agency_sales"], [])
+        self.assertEqual((sphere, score), ("нецелевой", 1))
+
     def test_accepts_virtual_card_service_without_exchange_keywords(self):
         title = "Виртуальные карты Visa для международных сервисов"
         text = "Выпуск виртуальной карты Visa, оплата подписок и пополнение через СБП."

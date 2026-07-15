@@ -171,20 +171,38 @@ NON_TARGET_MARKERS = (
 )
 
 TARGET_TITLE_MARKERS = (
+    "academy",
+    "affiliate",
+    "blog",
     "card",
+    "channel",
+    "community",
     "crypto",
     "exchange",
     "exchanger",
+    "fintech",
+    "founder",
     "game",
+    "media",
     "otc",
     "payment",
+    "startup",
     "steam",
+    "trader",
+    "trading",
     "usdt",
     "visa",
     "wallet",
+    "web3",
+    "академ",
+    "арбитраж",
+    "блог",
     "виртуальн",
     "зарубеж",
+    "канал",
     "карт",
+    "команд",
+    "комьюнити",
     "крипто",
     "кошелек",
     "кошелёк",
@@ -194,13 +212,15 @@ TARGET_TITLE_MARKERS = (
     "пополн",
     "подпис",
     "p2p",
-    "арбитраж",
     "трафик",
     "traffic",
     "affiliate",
     "cpa",
     "webmaster",
     "вебмастер",
+    "стартап",
+    "трейдер",
+    "трейдинг",
 )
 
 EDITORIAL_TITLE_MARKERS = (
@@ -289,9 +309,6 @@ TRAFFIC_TEAM_MARKERS = (
     "webmaster",
     "leadgen",
     "лидогенерация",
-    "telegram channel",
-    "телеграм канал",
-    "крипто канал",
 )
 
 PAYMENT_INFRA_MARKERS = (
@@ -898,6 +915,53 @@ def classify_and_score(text, telegram, email):
     has_usdt = "usdt" in low or "tether" in low
     has_crypto = any(x in low for x in ("crypto", "крипто", "bitcoin", "btc", "blockchain", "tron", "trc20"))
     has_ruble_market = contains_any(low, RUBLE_MARKET_MARKERS)
+    has_public_audience = any(
+        x in low
+        for x in (
+            "audience",
+            "blogger",
+            "channel",
+            "community",
+            "influencer",
+            "media",
+            "subscribers",
+            "академия",
+            "аудитория",
+            "блогер",
+            "канал",
+            "комьюнити",
+            "медиа",
+            "подписчик",
+            "сообщество",
+        )
+    )
+    has_trading_team = any(
+        x in low
+        for x in (
+            "crypto trading",
+            "p2p arbitrage",
+            "trading team",
+            "арбитраж криптовалют",
+            "команда трейдеров",
+            "крипто трейдер",
+            "криптотрейдер",
+            "p2p арбитраж",
+            "трейдинг",
+            "трейдер",
+        )
+    )
+    has_startup = any(
+        x in low
+        for x in (
+            "co-founder",
+            "fintech startup",
+            "founder",
+            "startup",
+            "web3 startup",
+            "основатель",
+            "стартап",
+        )
+    )
 
     if not (
         has_usdt
@@ -906,10 +970,23 @@ def classify_and_score(text, telegram, email):
         or has_gaming_topup
         or has_subscriptions
         or has_crossborder
+        or (has_crypto and (has_public_audience or has_trading_team or has_startup or has_traffic_team))
     ):
         return "нецелевой", 1
 
-    if has_payment_infra and not (has_exchange or has_otc):
+    if has_crypto and has_startup:
+        sphere = "крипто / финтех стартап"
+        score += 4
+    elif has_crypto and has_trading_team:
+        sphere = "трейдинг / арбитражная команда"
+        score += 4
+    elif has_crypto and has_traffic_team:
+        sphere = "крипто-трафик / affiliate"
+        score += 4
+    elif has_crypto and has_public_audience:
+        sphere = "криптоблогер / сообщество"
+        score += 4
+    elif has_payment_infra and not (has_exchange or has_otc):
         sphere = "платежная инфраструктура / партнер"
         score += 1
     elif has_exchange:
@@ -945,6 +1022,8 @@ def classify_and_score(text, telegram, email):
         score += 1
     if has_fintech or has_wallet:
         score += 1
+    if has_public_audience or has_trading_team or has_startup or has_traffic_team:
+        score += 1
     if telegram:
         score += 1
     if email:
@@ -971,10 +1050,9 @@ def classify_and_score(text, telegram, email):
 def is_target_project(title, text):
     title_low = title.lower()
     text_low = text.lower()
-    if not any(marker in title_low for marker in TARGET_TITLE_MARKERS):
-        return False
     if any(marker in title_low for marker in EDITORIAL_TITLE_MARKERS):
         return False
+    has_target_title = any(marker in title_low for marker in TARGET_TITLE_MARKERS)
     has_crypto = any(marker in text_low for marker in ("usdt", "tether", "crypto", "крипто", "trc20"))
     has_crypto_service = any(
         marker in text_low
@@ -1013,7 +1091,55 @@ def is_target_project(title, text):
             "cross-border",
         )
     )
-    return (has_crypto and has_crypto_service) or has_card_service or has_gaming_service or has_crossborder_service
+    has_audience_project = any(
+        marker in text_low
+        for marker in (
+            "audience",
+            "blogger",
+            "channel",
+            "community",
+            "influencer",
+            "subscribers",
+            "академия",
+            "аудитория",
+            "блогер",
+            "канал",
+            "комьюнити",
+            "подписчик",
+            "сообщество",
+        )
+    )
+    has_team_project = any(
+        marker in text_low
+        for marker in (
+            "affiliate",
+            "co-founder",
+            "crypto trading",
+            "founder",
+            "media buying",
+            "p2p arbitrage",
+            "startup",
+            "trading team",
+            "web3",
+            "арбитраж криптовалют",
+            "арбитраж трафика",
+            "команда трейдеров",
+            "основатель",
+            "стартап",
+            "трейдер",
+            "трейдинг",
+        )
+    )
+    has_personal_brand_target = has_crypto and (has_audience_project or has_team_project)
+    return (
+        has_target_title
+        and (
+            (has_crypto and has_crypto_service)
+            or has_card_service
+            or has_gaming_service
+            or has_crossborder_service
+        )
+    ) or has_personal_brand_target
 
 
 def scan_site(url, scan_pages=10):
