@@ -24,21 +24,15 @@ HEADERS = [
     "Оценка 1-10 для покупки франшизы",
 ]
 
-BUTTON_COLLECT = "Собрать 20 лидов"
-BUTTON_NEXT = "Следующий лид"
-BUTTON_HOT = "Горячий 8+"
-BUTTON_TOP = "Топ-10"
+BUTTON_COLLECT = "Собрать TG-контакты"
+BUTTON_NEXT = "Следующий контакт"
 BUTTON_COUNT = "Сколько лидов"
-BUTTON_SEARCH = "Поиск"
-BUTTON_EXPORT = "Скачать CSV"
 BUTTON_STATUS = "Статус сбора"
 
 MAIN_KEYBOARD = {
     "keyboard": [
-        [{"text": BUTTON_COLLECT}, {"text": BUTTON_HOT}],
-        [{"text": BUTTON_NEXT}, {"text": BUTTON_TOP}],
-        [{"text": BUTTON_COUNT}, {"text": BUTTON_SEARCH}],
-        [{"text": BUTTON_EXPORT}, {"text": BUTTON_STATUS}],
+        [{"text": BUTTON_COLLECT}, {"text": BUTTON_NEXT}],
+        [{"text": BUTTON_COUNT}, {"text": BUTTON_STATUS}],
     ],
     "resize_keyboard": True,
     "is_persistent": True,
@@ -309,15 +303,9 @@ def lead_reason(row):
 
 def format_row(row, index):
     tg = row.get("Telegram") or "-"
-    email = row.get("Email") or "-"
     return (
-        f"{index}. {row.get('Название проекта', '-')}\n"
-        f"Сфера: {row.get('Сфера', '-')}\n"
-        f"Приоритет: {priority_label(row)}\n"
-        f"Почему интересен: {lead_reason(row)}\n"
-        f"TG: {tg}\n"
-        f"Email: {email}\n"
-        f"Оценка: {row.get('Оценка 1-10 для покупки франшизы', '-')}/10"
+        f"{row.get('Название проекта', 'Проект')}\n"
+        f"{tg}"
     )
 
 
@@ -331,11 +319,16 @@ def telegram_url(value):
 
 
 def ranked_rows():
-    return sorted(
-        load_rows(),
-        key=lambda row: (bool(telegram_url(row.get("Telegram", ""))), score_of(row)),
-        reverse=True,
-    )
+    rows = sorted(load_rows(), key=score_of, reverse=True)
+    seen = set()
+    unique = []
+    for row in rows:
+        contact = telegram_url(row.get("Telegram", "")).lower()
+        if not contact or contact in seen:
+            continue
+        seen.add(contact)
+        unique.append(row)
+    return unique
 
 
 def cursor_key(user_id, min_score):
@@ -347,15 +340,13 @@ def lead_keyboard(row, min_score=1):
     contact_url = telegram_url(row.get("Telegram", ""))
     lead_id = row_key(row)
     if contact_url:
-        buttons.append([{"text": "Открыть Telegram", "url": contact_url}])
+        buttons.append([{"text": "Открыть чат", "url": contact_url}])
     buttons.append(
         [
-            {"text": "Взял в работу", "callback_data": f"work:{min_score}:{lead_id}"},
+            {"text": "Отправил → следующий", "callback_data": f"work:{min_score}:{lead_id}"},
             {"text": "Пропустить", "callback_data": f"skip:{min_score}:{lead_id}"},
         ]
     )
-    next_text = "Следующий 8+" if min_score >= 8 else "Следующий лид"
-    buttons.append([{"text": next_text, "callback_data": f"next:{min_score}"}])
     return {"inline_keyboard": buttons}
 
 
@@ -367,23 +358,22 @@ def send_next_lead(chat_id, user_id, min_score=1):
         if row_is_new(row, state) and score_of(row) >= min_score
     ]
     if not rows:
-        total = len(load_rows())
+        total = len(ranked_rows())
         if total:
             scope = "горячие лиды 8+" if min_score >= 8 else "лиды"
             send(
                 chat_id,
                 f"Все {scope} из текущей базы уже разобраны: часть взята в работу, часть пропущена. "
-                "Можно нажать «Собрать 20 лидов» или написать /reset_review, чтобы начать разбор заново.",
+                "Можно нажать «Собрать TG-контакты».",
             )
         else:
-            send(chat_id, "База пока пустая. Сначала нажми «Собрать 20 лидов».")
+            send(chat_id, "База пока пустая. Нажми «Собрать TG-контакты».")
         return
     key = cursor_key(user_id, min_score)
     position = LEAD_CURSORS.get(key, 0) % len(rows)
     row = rows[position]
     LEAD_CURSORS[key] = position + 1
-    label = "горячий лид" if min_score >= 8 else "новый лид"
-    text = format_row(row, position + 1) + f"\n\n{label.capitalize()} {position + 1} из {len(rows)}"
+    text = format_row(row, position + 1) + f"\n\nОсталось контактов: {len(rows)}"
     send(chat_id, text, keyboard=False, reply_markup=lead_keyboard(row, min_score=min_score))
 
 
@@ -407,33 +397,23 @@ def send_rows(chat_id, rows):
 def cmd_start():
     return (
         "Altyn Lead Bot\n\n"
-        "Собирает публичные контакты потенциальных партнёров и складывает их в простую базу. "
-        "Рассылки бот не делает: решение, кому писать, остаётся за менеджером.\n\n"
-        "Нажми кнопку ниже или используй команды:\n"
-        "/collect 20 - собрать новые лиды\n"
-        "/collecttg 100 - собрать пачку лидов именно с Telegram\n"
+        "Собирает только публичные Telegram-контакты и показывает каждый один раз.\n\n"
+        "/collect 100 - собрать контакты\n"
         "/next - открыть следующий контакт\n"
-        "/next 8 - открыть следующий горячий лид 8+\n"
-        "/top 10 - лучшие лиды по оценке\n"
-        "/search слово - поиск по базе\n"
-        "/export - скачать всю базу\n"
-        "/tglist 100 - скачать Telegram-контакты пачкой\n"
-        "/add Название | Сфера | @telegram | email | 8\n"
-        "/reset_review - сбросить отметки разбора"
+        "/count - показать остаток\n"
+        "/status - статус сбора"
     )
 
 
 def cmd_count():
-    rows = load_rows()
+    rows = ranked_rows()
     state = load_state()
-    strong = sum(score_of(row) >= 8 for row in rows)
     new_rows = sum(row_is_new(row, state) for row in rows)
     return (
-        f"Всего лидов: {len(rows)}\n"
-        f"Новых к разбору: {new_rows}\n"
-        f"Взято в работу: {len(state['contacted'])}\n"
-        f"Пропущено: {len(state['skipped'])}\n"
-        f"С оценкой 8-10: {strong}"
+        f"TG-контактов: {len(rows)}\n"
+        f"Осталось: {new_rows}\n"
+        f"Отправлено: {len(state['contacted'])}\n"
+        f"Пропущено: {len(state['skipped'])}"
     )
 
 
@@ -637,21 +617,19 @@ def handle_message(message):
         start_collection(chat_id, limit, telegram_only=True)
     elif text.startswith("/collect"):
         parts = text.split()
-        limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 20
-        start_collection(chat_id, limit)
+        limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 100
+        start_collection(chat_id, limit, telegram_only=True)
     elif text == BUTTON_COLLECT:
-        start_collection(chat_id, 20)
+        start_collection(chat_id, 100, telegram_only=True)
     elif text.startswith("/next"):
         parts = text.split()
         min_score = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
         send_next_lead(chat_id, user_id, min_score=max(1, min(10, min_score)))
-    elif text == BUTTON_HOT:
-        send_next_lead(chat_id, user_id, min_score=8)
     elif text == BUTTON_NEXT:
         send_next_lead(chat_id, user_id, min_score=1)
     elif text.startswith("/count") or text == BUTTON_COUNT:
         send(chat_id, cmd_count())
-    elif text.startswith("/top") or text == BUTTON_TOP:
+    elif text.startswith("/top"):
         send_rows(chat_id, top_rows(text))
     elif text.startswith("/search"):
         query = text.partition(" ")[2].strip()
@@ -660,13 +638,10 @@ def handle_message(message):
             send(chat_id, "Напиши название, сферу, Telegram или email для поиска.")
         else:
             send_rows(chat_id, search_rows(query))
-    elif text == BUTTON_SEARCH:
-        PENDING_SEARCH.add(user_id)
-        send(chat_id, "Что ищем? Например: обменник, USDT или @username")
     elif user_id in PENDING_SEARCH and not text.startswith("/"):
         PENDING_SEARCH.discard(user_id)
         send_rows(chat_id, search_rows(text))
-    elif text.startswith("/export") or text == BUTTON_EXPORT:
+    elif text.startswith("/export"):
         export_csv(chat_id)
     elif text.startswith("/tglist"):
         parts = text.split()
@@ -718,16 +693,10 @@ def handle_callback(callback):
 
 def configure_commands():
     commands = [
-        {"command": "collect", "description": "Собрать новые лиды"},
-        {"command": "collecttg", "description": "Собрать лиды с Telegram"},
+        {"command": "collect", "description": "Собрать TG-контакты"},
         {"command": "next", "description": "Открыть следующий контакт"},
-        {"command": "top", "description": "Показать лучшие лиды"},
-        {"command": "search", "description": "Найти в базе"},
-        {"command": "count", "description": "Статистика базы"},
-        {"command": "export", "description": "Скачать CSV"},
-        {"command": "tglist", "description": "Скачать Telegram-контакты"},
+        {"command": "count", "description": "Сколько контактов осталось"},
         {"command": "status", "description": "Статус сбора"},
-        {"command": "reset_review", "description": "Сбросить разбор лидов"},
         {"command": "help", "description": "Помощь"},
     ]
     api("setMyCommands", {"commands": json.dumps(commands, ensure_ascii=False)})
@@ -738,7 +707,7 @@ def auto_collect_loop():
         return
     time.sleep(60)
     while True:
-        start_collection(REPORT_CHAT_ID, AUTO_COLLECT_LIMIT)
+        start_collection(REPORT_CHAT_ID, AUTO_COLLECT_LIMIT, telegram_only=True)
         time.sleep(max(1, AUTO_COLLECT_INTERVAL_HOURS) * 3600)
 
 

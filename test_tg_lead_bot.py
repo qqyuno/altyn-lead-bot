@@ -10,7 +10,7 @@ class CollectionReportTests(unittest.TestCase):
 
         self.assertEqual(tg_lead_bot.parsed_collection_counts(output, 0), (3, 7))
 
-    def test_work_queue_prioritizes_telegram_then_keeps_email_fallback(self):
+    def test_work_queue_contains_only_unique_telegram_contacts(self):
         email_only = {
             "Название проекта": "Email only",
             "Telegram": "",
@@ -29,8 +29,21 @@ class CollectionReportTests(unittest.TestCase):
 
         self.assertEqual(
             [row["Название проекта"] for row in rows],
-            ["Telegram lead", "Email only"],
+            ["Telegram lead"],
         )
+
+    def test_lead_keyboard_keeps_only_open_send_and_skip_actions(self):
+        row = {
+            "Название проекта": "Telegram lead",
+            "Telegram": "@telegram_lead",
+            "Email": "",
+            "Оценка 1-10 для покупки франшизы": "8",
+        }
+
+        keyboard = tg_lead_bot.lead_keyboard(row)
+        buttons = [button["text"] for line in keyboard["inline_keyboard"] for button in line]
+
+        self.assertEqual(buttons, ["Открыть чат", "Отправил → следующий", "Пропустить"])
 
     def test_telegram_rows_returns_unique_contacts_in_priority_order(self):
         rows = [
