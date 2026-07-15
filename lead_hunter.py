@@ -1333,6 +1333,8 @@ def main():
     parser.add_argument("--max-queries", type=int, default=18)
     parser.add_argument("--scan-pages", type=int, default=10)
     parser.add_argument("--min-score", type=int, default=5)
+    parser.add_argument("--telegram-only", action="store_true")
+    parser.add_argument("--query-only", action="store_true")
     args = parser.parse_args()
 
     queries = read_lines(args.queries)
@@ -1387,6 +1389,8 @@ def main():
                 break
             if not has_required_contact(row):
                 continue
+            if args.telegram_only and not row.get("Telegram"):
+                continue
             if row["Сфера"] == "нецелевой":
                 continue
             if int(row["Оценка 1-10 для покупки франшизы"]) < args.min_score:
@@ -1399,19 +1403,20 @@ def main():
             upsert_rows(args.out, [row])
             print(f"Added: {row['Название проекта']} / {row['Оценка 1-10 для покупки франшизы']}")
 
-    print("Searching: BestChange exchangers")
-    bestchange_quota = max(1, (args.limit + 2) // 3)
-    try:
-        bestchange_candidates = search_bestchange(max(bestchange_quota * 3, 8))
-        collect_candidates(bestchange_candidates, source_cap=bestchange_quota)
-    except Exception as exc:
-        print(f"BestChange search failed: {exc}")
+    bestchange_quota = 0 if args.query_only else max(1, (args.limit + 2) // 3)
+    if bestchange_quota:
+        print("Searching: BestChange exchangers")
+        try:
+            bestchange_candidates = search_bestchange(max(bestchange_quota * 3, 8))
+            collect_candidates(bestchange_candidates, source_cap=bestchange_quota)
+        except Exception as exc:
+            print(f"BestChange search failed: {exc}")
 
     primary_monitorings = list(MONITORING_SOURCES[:4])
     extra_monitorings = list(MONITORING_SOURCES[4:])
     random.shuffle(extra_monitorings)
     monitoring_sources = primary_monitorings + extra_monitorings[:2]
-    monitoring_quota = max(1, (args.limit + 2) // 3)
+    monitoring_quota = 0 if args.query_only else max(1, (args.limit + 2) // 3)
     monitoring_start = len(rows)
     for source_name, source_url in monitoring_sources:
         if len(rows) >= args.limit:

@@ -411,11 +411,13 @@ def cmd_start():
         "Рассылки бот не делает: решение, кому писать, остаётся за менеджером.\n\n"
         "Нажми кнопку ниже или используй команды:\n"
         "/collect 20 - собрать новые лиды\n"
+        "/collecttg 100 - собрать пачку лидов именно с Telegram\n"
         "/next - открыть следующий контакт\n"
         "/next 8 - открыть следующий горячий лид 8+\n"
         "/top 10 - лучшие лиды по оценке\n"
         "/search слово - поиск по базе\n"
         "/export - скачать всю базу\n"
+        "/tglist 100 - скачать Telegram-контакты пачкой\n"
         "/add Название | Сфера | @telegram | email | 8\n"
         "/reset_review - сбросить отметки разбора"
     )
@@ -495,7 +497,7 @@ def parsed_collection_counts(output, fallback_added):
     return int(match.group(1)), int(match.group(2))
 
 
-def run_collection(chat_id, limit):
+def run_collection(chat_id, limit, telegram_only=False):
     before = len(load_rows())
     try:
         command = [
@@ -506,6 +508,17 @@ def run_collection(chat_id, limit):
             "--out",
             str(LEADS_CSV),
         ]
+        if telegram_only:
+            command.extend(
+                [
+                    "--telegram-only",
+                    "--query-only",
+                    "--max-queries",
+                    "60",
+                    "--search-results",
+                    "10",
+                ]
+            )
         completed = subprocess.run(
             command,
             capture_output=True,
@@ -543,23 +556,69 @@ def run_collection(chat_id, limit):
         print(f"Could not send collection report: {exc}")
 
 
-def start_collection(chat_id, limit=20):
-    limit = max(1, min(100, int(limit)))
+def start_collection(chat_id, limit=20, telegram_only=False):
+    limit = max(1, min(300, int(limit)))
     if not COLLECT_LOCK.acquire(blocking=False):
         send(chat_id, collection_status())
         return
     COLLECT_STATE.update(running=True, started_at=time.time())
     send(
         chat_id,
-        f"Запустил сбор до {limit} новых лидов. Можно закрыть Telegram: по завершении пришлю результат.",
+        (
+            f"Запустил сбор до {limit} новых лидов с публичным Telegram."
+            if telegram_only
+            else f"Запустил сбор до {limit} новых лидов."
+        )
+        + " Можно закрыть Telegram: по завершении пришлю результат.",
     )
-    threading.Thread(target=run_collection, args=(chat_id, limit), daemon=True).start()
+    threading.Thread(
+        target=run_collection,
+        args=(chat_id, limit, telegram_only),
+        daemon=True,
+    ).start()
 
 
 def export_csv(chat_id):
     ensure_csv()
     rows = load_rows()
     send_document(chat_id, LEADS_CSV, f"База Altyn: {len(rows)} лидов")
+
+
+def telegram_rows(limit=100):
+    rows = [row for row in ranked_rows() if telegram_url(row.get("Telegram", ""))]
+    seen = set()
+    selected = []
+    for row in rows:
+        contact = telegram_url(row.get("Telegram", "")).lower()
+        if contact in seen:
+            continue
+        seen.add(contact)
+        selected.append(row)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def export_telegram_contacts(chat_id, limit=100):
+    limit = max(1, min(1000, int(limit)))
+    rows = telegram_rows(limit)
+    if not rows:
+        send(chat_id, "В базе пока нет Telegram-контактов. Запусти /collecttg 100.")
+        return
+
+    export_path = LEADS_CSV.with_name(f"telegram_contacts_{uuid.uuid4().hex[:8]}.csv")
+    try:
+        with export_path.open("w", encoding="utf-8-sig", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=HEADERS)
+            writer.writeheader()
+            writer.writerows(rows)
+        send_document(
+            chat_id,
+            export_path,
+            f"Публичные Telegram-контакты: {len(rows)}. Проекты отсортированы по приоритету.",
+        )
+    finally:
+        export_path.unlink(missing_ok=True)
 
 
 def handle_message(message):
@@ -572,6 +631,10 @@ def handle_message(message):
     text = (message.get("text") or "").strip()
     if text.startswith("/start") or text.startswith("/help"):
         send(chat_id, cmd_start())
+    elif text.startswith("/collecttg"):
+        parts = text.split()
+        limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 100
+        start_collection(chat_id, limit, telegram_only=True)
     elif text.startswith("/collect"):
         parts = text.split()
         limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 20
@@ -605,6 +668,10 @@ def handle_message(message):
         send_rows(chat_id, search_rows(text))
     elif text.startswith("/export") or text == BUTTON_EXPORT:
         export_csv(chat_id)
+    elif text.startswith("/tglist"):
+        parts = text.split()
+        limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 100
+        export_telegram_contacts(chat_id, limit)
     elif text.startswith("/status") or text == BUTTON_STATUS:
         send(chat_id, collection_status())
     elif text.startswith("/reset_review"):
@@ -652,11 +719,13 @@ def handle_callback(callback):
 def configure_commands():
     commands = [
         {"command": "collect", "description": "Собрать новые лиды"},
+        {"command": "collecttg", "description": "Собрать лиды с Telegram"},
         {"command": "next", "description": "Открыть следующий контакт"},
         {"command": "top", "description": "Показать лучшие лиды"},
         {"command": "search", "description": "Найти в базе"},
         {"command": "count", "description": "Статистика базы"},
         {"command": "export", "description": "Скачать CSV"},
+        {"command": "tglist", "description": "Скачать Telegram-контакты"},
         {"command": "status", "description": "Статус сбора"},
         {"command": "reset_review", "description": "Сбросить разбор лидов"},
         {"command": "help", "description": "Помощь"},

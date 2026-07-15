@@ -32,6 +32,42 @@ class CollectionReportTests(unittest.TestCase):
             ["Telegram lead", "Email only"],
         )
 
+    def test_telegram_rows_returns_unique_contacts_in_priority_order(self):
+        rows = [
+            {
+                "Название проекта": "Lower score",
+                "Telegram": "@same_contact",
+                "Email": "",
+                "Оценка 1-10 для покупки франшизы": "7",
+            },
+            {
+                "Название проекта": "Best lead",
+                "Telegram": "https://t.me/best_contact",
+                "Email": "",
+                "Оценка 1-10 для покупки франшизы": "9",
+            },
+            {
+                "Название проекта": "Duplicate",
+                "Telegram": "https://t.me/same_contact",
+                "Email": "",
+                "Оценка 1-10 для покупки франшизы": "6",
+            },
+            {
+                "Название проекта": "Email only",
+                "Telegram": "",
+                "Email": "sales@example.com",
+                "Оценка 1-10 для покупки франшизы": "10",
+            },
+        ]
+
+        with patch.object(tg_lead_bot, "load_rows", return_value=rows):
+            selected = tg_lead_bot.telegram_rows(10)
+
+        self.assertEqual(
+            [row["Название проекта"] for row in selected],
+            ["Best lead", "Lower score"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
