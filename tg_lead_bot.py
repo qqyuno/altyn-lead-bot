@@ -13,7 +13,9 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import uuid
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 HEADERS = [
@@ -67,7 +69,9 @@ COLLECT_STATE = {
 PENDING_SEARCH = set()
 LEAD_CURSORS = {}
 
-EMPTY_REVIEW_STATE = {"contacted": [], "skipped": []}
+DAILY_TARGET = 50
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+EMPTY_REVIEW_STATE = {"contacted": [], "skipped": [], "sent_events": []}
 
 
 def api(method, payload=None, timeout=35, attempts=3):
@@ -217,6 +221,7 @@ def load_state():
     return {
         "contacted": list(dict.fromkeys(state.get("contacted", []))),
         "skipped": list(dict.fromkeys(state.get("skipped", []))),
+        "sent_events": [event for event in state.get("sent_events", []) if isinstance(event, dict)],
     }
 
 
@@ -225,6 +230,7 @@ def save_state(state):
     normalized = {
         "contacted": sorted(set(state.get("contacted", []))),
         "skipped": sorted(set(state.get("skipped", []))),
+        "sent_events": state.get("sent_events", []),
     }
     LEAD_STATE_JSON.write_text(
         json.dumps(normalized, ensure_ascii=False, indent=2),
@@ -250,7 +256,33 @@ def mark_lead(lead_id, status):
             state[bucket].remove(lead_id)
     if status in state:
         state[status].append(lead_id)
+    if status == "contacted":
+        day = datetime.now(MOSCOW_TZ).date().isoformat()
+        already_counted = any(
+            event.get("lead_id") == lead_id and event.get("day") == day
+            for event in state["sent_events"]
+        )
+        if not already_counted:
+            state["sent_events"].append({"lead_id": lead_id, "day": day})
     save_state(state)
+
+
+def sent_today(state=None, day=None):
+    state = state or load_state()
+    day = day or datetime.now(MOSCOW_TZ).date().isoformat()
+    return len(
+        {
+            event.get("lead_id")
+            for event in state.get("sent_events", [])
+            if event.get("day") == day and event.get("lead_id")
+        }
+    )
+
+
+def cmd_today():
+    sent = sent_today()
+    remaining = max(0, DAILY_TARGET - sent)
+    return f"Сегодня отправлено: {sent}/{DAILY_TARGET}\nОсталось до плана: {remaining}"
 
 
 def reset_review_state():
@@ -400,6 +432,7 @@ def cmd_start():
         "Собирает только публичные Telegram-контакты и показывает каждый один раз.\n\n"
         "/collect 100 - собрать контакты\n"
         "/next - открыть следующий контакт\n"
+        "/today - план на сегодня\n"
         "/count - показать остаток\n"
         "/status - статус сбора"
     )
@@ -412,6 +445,7 @@ def cmd_count():
     return (
         f"TG-контактов: {len(rows)}\n"
         f"Осталось: {new_rows}\n"
+        f"Сегодня: {sent_today(state)}/{DAILY_TARGET}\n"
         f"Отправлено: {len(state['contacted'])}\n"
         f"Пропущено: {len(state['skipped'])}"
     )
@@ -629,6 +663,8 @@ def handle_message(message):
         send_next_lead(chat_id, user_id, min_score=1)
     elif text.startswith("/count") or text == BUTTON_COUNT:
         send(chat_id, cmd_count())
+    elif text.startswith("/today"):
+        send(chat_id, cmd_today())
     elif text.startswith("/top"):
         send_rows(chat_id, top_rows(text))
     elif text.startswith("/search"):
@@ -649,8 +685,6 @@ def handle_message(message):
         export_telegram_contacts(chat_id, limit)
     elif text.startswith("/status") or text == BUTTON_STATUS:
         send(chat_id, collection_status())
-    elif text.startswith("/reset_review"):
-        send(chat_id, reset_review_state())
     elif text.startswith("/add"):
         send(chat_id, cmd_add(text))
     else:
@@ -678,7 +712,13 @@ def handle_callback(callback):
         min_score = parts[1] if len(parts) == 3 else "1"
         lead_id = parts[2] if len(parts) == 3 else parts[1]
         mark_lead(lead_id, "contacted")
-        api("answerCallbackQuery", {"callback_query_id": callback["id"], "text": "Зафиксировал"})
+        api(
+            "answerCallbackQuery",
+            {
+                "callback_query_id": callback["id"],
+                "text": f"Сегодня: {sent_today()}/{DAILY_TARGET}",
+            },
+        )
         send_next_lead(chat_id, user_id, min_score=max(1, min(10, int(min_score or 1))))
     elif data.startswith("skip:"):
         parts = data.split(":", 2)
@@ -695,6 +735,7 @@ def configure_commands():
     commands = [
         {"command": "collect", "description": "Собрать TG-контакты"},
         {"command": "next", "description": "Открыть следующий контакт"},
+        {"command": "today", "description": "План 50 касаний на сегодня"},
         {"command": "count", "description": "Сколько контактов осталось"},
         {"command": "status", "description": "Статус сбора"},
         {"command": "help", "description": "Помощь"},

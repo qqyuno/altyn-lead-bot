@@ -45,6 +45,20 @@ class CollectionReportTests(unittest.TestCase):
 
         self.assertEqual(buttons, ["Открыть чат", "Отправил → следующий", "Пропустить"])
 
+    def test_sent_today_counts_unique_contacts_for_selected_day(self):
+        state = {
+            "contacted": ["lead-a", "lead-b"],
+            "skipped": [],
+            "sent_events": [
+                {"lead_id": "lead-a", "day": "2026-07-16"},
+                {"lead_id": "lead-a", "day": "2026-07-16"},
+                {"lead_id": "lead-b", "day": "2026-07-16"},
+                {"lead_id": "lead-c", "day": "2026-07-15"},
+            ],
+        }
+
+        self.assertEqual(tg_lead_bot.sent_today(state, "2026-07-16"), 2)
+
     def test_telegram_rows_returns_unique_contacts_in_priority_order(self):
         rows = [
             {
