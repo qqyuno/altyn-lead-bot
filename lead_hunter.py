@@ -104,7 +104,6 @@ SKIP_DOMAINS = {
     "exnode.ru",
     "yandex.ru",
     "telegram.org",
-    "t.me",
     "vk.com",
     "youtube.com",
     "wikipedia.org",
@@ -263,6 +262,39 @@ RUBLE_MARKET_MARKERS = (
     "спб",
     "russian traffic",
     "ru traffic",
+)
+
+TOURIST_PLACE_MARKERS = (
+    "аланья",
+    "алматы",
+    "анталья",
+    "астана",
+    "баку",
+    "бали",
+    "бангкок",
+    "белград",
+    "бишкек",
+    "будва",
+    "вьетнам",
+    "дубай",
+    "ереван",
+    "кипр",
+    "кишинев",
+    "лимассол",
+    "нячанг",
+    "паттайя",
+    "пхукет",
+    "самуи",
+    "стамбул",
+    "ташкент",
+    "таиланд",
+    "хургада",
+    "шарм-эль-шейх",
+)
+
+TOURIST_CURRENCY_RE = re.compile(
+    r"\b(?:AED|AMD|AZN|EGP|IDR|KGS|KZT|LKR|MDL|MYR|PHP|RSD|THB|TRY|UZS|VND)\b",
+    re.I,
 )
 
 EXCHANGE_MARKERS = (
@@ -469,6 +501,14 @@ def clean_url(url):
     return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
 
 
+def candidate_key(url):
+    domain = domain_of(url)
+    if domain == "t.me":
+        handle = telegram_handle_from_href(url)
+        return f"t.me/{handle.lower()}" if handle else ""
+    return domain
+
+
 def navigation_url(url):
     url = html.unescape(url)
     parsed = urllib.parse.urlparse(url)
@@ -512,10 +552,10 @@ def search_bing_html(query, max_results):
         url = clean_url(link)
         if not url or is_skipped(url):
             continue
-        domain = domain_of(url)
-        if domain in seen:
+        key = candidate_key(url)
+        if not key or key in seen:
             continue
-        seen.add(domain)
+        seen.add(key)
         results.append(url)
         if len(results) >= max_results:
             break
@@ -544,10 +584,10 @@ def search_duckduckgo(query, max_results):
         url = normalize_duckduckgo_url(link)
         if not url or is_skipped(url):
             continue
-        domain = domain_of(url)
-        if domain in seen:
+        key = candidate_key(url)
+        if not key or key in seen:
             continue
-        seen.add(domain)
+        seen.add(key)
         results.append(url)
         if len(results) >= max_results:
             break
@@ -915,6 +955,7 @@ def classify_and_score(text, telegram, email):
     has_usdt = "usdt" in low or "tether" in low
     has_crypto = any(x in low for x in ("crypto", "крипто", "bitcoin", "btc", "blockchain", "tron", "trc20"))
     has_ruble_market = contains_any(low, RUBLE_MARKET_MARKERS)
+    has_tourist_market = contains_any(low, TOURIST_PLACE_MARKERS) or bool(TOURIST_CURRENCY_RE.search(low))
     has_public_audience = any(
         x in low
         for x in (
@@ -989,6 +1030,9 @@ def classify_and_score(text, telegram, email):
     elif has_payment_infra and not (has_exchange or has_otc):
         sphere = "платежная инфраструктура / партнер"
         score += 1
+    elif has_exchange and has_tourist_market:
+        sphere = "туристический криптообменник"
+        score += 5
     elif has_exchange:
         sphere = "криптообменник"
         score += 4
@@ -1147,10 +1191,19 @@ def scan_site(url, scan_pages=10):
     title = ""
     telegram_scores = {}
     found_email = []
-    root = base_url(url)
+    direct_telegram = telegram_handle_from_href(url) if domain_of(url) == "t.me" else ""
+    root = clean_url(url) if direct_telegram else base_url(url)
     queue = [root]
-    queue.extend(root + path for path in CONTACT_PATHS if path)
+    if not direct_telegram:
+        queue.extend(root + path for path in CONTACT_PATHS if path)
     seen_pages = set()
+
+    if direct_telegram:
+        telegram_scores[f"@{direct_telegram}"] = telegram_contact_score(
+            direct_telegram,
+            "public Telegram contact",
+            root,
+        )
 
     while queue and len(seen_pages) < scan_pages:
         page_url = queue.pop(0)
@@ -1172,7 +1225,7 @@ def scan_site(url, scan_pages=10):
             telegram_scores[key] = max(score, telegram_scores.get(key, -10_000))
         email = sorted({x.strip(".,;:()[]<>").lower() for x in EMAIL_RE.findall(page + " " + text)})
         found_email.extend(email)
-        discovered = discover_contact_pages(page, page_url, root)
+        discovered = [] if direct_telegram else discover_contact_pages(page, page_url, root)
         queue = discovered + [candidate for candidate in queue if candidate not in discovered]
         time.sleep(0.2)
 
@@ -1351,10 +1404,11 @@ def main():
         pending = []
         for url in candidates:
             domain = domain_of(url)
-            if not domain or domain in seen_domains:
+            key = candidate_key(url)
+            if not domain or not key or key in seen_domains:
                 continue
-            seen_domains.add(domain)
-            print(f"Scanning: {domain}")
+            seen_domains.add(key)
+            print(f"Scanning: {key}")
             pending.append(url)
 
         def scan_candidate(url):

@@ -8,6 +8,39 @@ import lead_hunter
 
 
 class TelegramContactTests(unittest.TestCase):
+    def test_direct_telegram_candidates_are_deduplicated_by_handle(self):
+        self.assertEqual(
+            lead_hunter.candidate_key("https://t.me/phuket_exchange"),
+            "t.me/phuket_exchange",
+        )
+        self.assertNotEqual(
+            lead_hunter.candidate_key("https://t.me/phuket_exchange"),
+            lead_hunter.candidate_key("https://t.me/pattaya_exchange"),
+        )
+
+    def test_scans_public_telegram_page_as_a_lead(self):
+        page = """
+            <title>Phuket USDT Exchange</title>
+            <meta property="og:description" content="Обмен USDT на THB за наличные на Пхукете">
+            <p>Обменник на Пхукете. USDT, THB, наличные.</p>
+        """
+
+        with patch.object(lead_hunter, "fetch", return_value=page):
+            row = lead_hunter.scan_site("https://t.me/phuket_exchange", scan_pages=2)
+
+        self.assertEqual(row["Telegram"], "@phuket_exchange")
+        self.assertEqual(row["Сфера"], "туристический криптообменник")
+
+    def test_prioritizes_tourist_exchanger_with_local_currency(self):
+        title = "USDT THB Exchange Phuket"
+        text = "Обменник на Пхукете: USDT за наличные баты, выдача THB и связь через Telegram."
+
+        self.assertTrue(lead_hunter.is_target_project(title, text))
+        sphere, score = lead_hunter.classify_and_score(text, ["@phuket_exchange"], [])
+
+        self.assertEqual(sphere, "туристический криптообменник")
+        self.assertGreaterEqual(score, 7)
+
     def test_accepts_crypto_blogger_with_public_audience(self):
         title = "Криптоблогер и Telegram-канал о трейдинге"
         text = "Автор ведет крипто канал для 25000 подписчиков: Bitcoin, USDT и обзоры рынка. По вопросам сотрудничества пишите менеджеру."

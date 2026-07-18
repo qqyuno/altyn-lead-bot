@@ -5,6 +5,18 @@ import tg_lead_bot
 
 
 class CollectionReportTests(unittest.TestCase):
+    def test_tourist_collection_uses_dedicated_queries_and_telegram_only_mode(self):
+        command = tg_lead_bot.collection_command(
+            100,
+            telegram_only=True,
+            queries_path=tg_lead_bot.TOURIST_QUERIES,
+        )
+
+        self.assertIn("--telegram-only", command)
+        self.assertIn("--query-only", command)
+        self.assertEqual(command[command.index("--queries") + 1], str(tg_lead_bot.TOURIST_QUERIES))
+        self.assertEqual(command[command.index("--max-queries") + 1], "120")
+
     def test_parses_added_and_updated_counts(self):
         output = "Done. Added 3 leads, updated 7 leads in data/leads.csv"
 
