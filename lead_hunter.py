@@ -1374,6 +1374,23 @@ def has_required_contact(row):
     return bool(row.get("Telegram") or row.get("Email"))
 
 
+def ordered_queries(queries_path, priority_queries_path=""):
+    queries = read_lines(queries_path)
+    priority_queries = read_lines(priority_queries_path) if priority_queries_path else []
+    random.shuffle(priority_queries)
+    random.shuffle(queries)
+
+    result = []
+    seen = set()
+    for query in priority_queries + queries:
+        key = query.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(query)
+    return result
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1381,6 +1398,7 @@ def main():
     parser = argparse.ArgumentParser(description="Collect public Altyn franchise leads into a simple CSV.")
     parser.add_argument("--limit", type=int, default=30)
     parser.add_argument("--queries", default=str(Path(__file__).with_name("queries.txt")))
+    parser.add_argument("--priority-queries", default="")
     parser.add_argument("--out", default=str(Path(__file__).with_name("altyn_leads.csv")))
     parser.add_argument("--search-results", type=int, default=6)
     parser.add_argument("--max-queries", type=int, default=18)
@@ -1390,10 +1408,9 @@ def main():
     parser.add_argument("--query-only", action="store_true")
     args = parser.parse_args()
 
-    queries = read_lines(args.queries)
+    queries = ordered_queries(args.queries, args.priority_queries)
     if not queries:
         raise SystemExit("No queries found.")
-    random.shuffle(queries)
 
     keys = existing_keys(args.out)
     rows = []

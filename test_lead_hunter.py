@@ -8,6 +8,22 @@ import lead_hunter
 
 
 class TelegramContactTests(unittest.TestCase):
+    def test_priority_queries_are_processed_before_general_queries(self):
+        with (
+            patch.object(
+                lead_hunter,
+                "read_lines",
+                side_effect=[
+                    ["general exchange", "shared query"],
+                    ["tourist exchange", "shared query"],
+                ],
+            ),
+            patch.object(lead_hunter.random, "shuffle"),
+        ):
+            queries = lead_hunter.ordered_queries("queries.txt", "tourist_queries.txt")
+
+        self.assertEqual(queries, ["tourist exchange", "shared query", "general exchange"])
+
     def test_direct_telegram_candidates_are_deduplicated_by_handle(self):
         self.assertEqual(
             lead_hunter.candidate_key("https://t.me/phuket_exchange"),

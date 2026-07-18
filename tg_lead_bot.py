@@ -27,15 +27,13 @@ HEADERS = [
 ]
 
 BUTTON_COLLECT = "Собрать TG-контакты"
-BUTTON_TRAVEL = "Туристические обменники"
 BUTTON_NEXT = "Следующий контакт"
 BUTTON_COUNT = "Сколько лидов"
 BUTTON_STATUS = "Статус сбора"
 
 MAIN_KEYBOARD = {
     "keyboard": [
-        [{"text": BUTTON_COLLECT}, {"text": BUTTON_TRAVEL}],
-        [{"text": BUTTON_NEXT}],
+        [{"text": BUTTON_COLLECT}, {"text": BUTTON_NEXT}],
         [{"text": BUTTON_COUNT}, {"text": BUTTON_STATUS}],
     ],
     "resize_keyboard": True,
@@ -434,7 +432,6 @@ def cmd_start():
         "Altyn Lead Bot\n\n"
         "Собирает только публичные Telegram-контакты и показывает каждый один раз.\n\n"
         "/collect 100 - собрать контакты\n"
-        "/travel 100 - обменники в туристических странах\n"
         "/next - открыть следующий контакт\n"
         "/today - план на сегодня\n"
         "/count - показать остаток\n"
@@ -515,7 +512,7 @@ def parsed_collection_counts(output, fallback_added):
     return int(match.group(1)), int(match.group(2))
 
 
-def collection_command(limit, telegram_only=False, queries_path=None):
+def collection_command(limit, telegram_only=False):
     command = [
         sys.executable,
         str(HUNTER_SCRIPT),
@@ -525,26 +522,25 @@ def collection_command(limit, telegram_only=False, queries_path=None):
         str(LEADS_CSV),
     ]
     if telegram_only:
-        max_queries = "120" if queries_path else "60"
         command.extend(
             [
                 "--telegram-only",
                 "--query-only",
                 "--max-queries",
-                max_queries,
+                "120",
                 "--search-results",
                 "10",
+                "--priority-queries",
+                str(TOURIST_QUERIES),
             ]
         )
-    if queries_path:
-        command.extend(["--queries", str(queries_path)])
     return command
 
 
-def run_collection(chat_id, limit, telegram_only=False, queries_path=None, segment_name=""):
+def run_collection(chat_id, limit, telegram_only=False):
     before = len(load_rows())
     try:
-        command = collection_command(limit, telegram_only, queries_path)
+        command = collection_command(limit, telegram_only)
         completed = subprocess.run(
             command,
             capture_output=True,
@@ -557,9 +553,8 @@ def run_collection(chat_id, limit, telegram_only=False, queries_path=None, segme
         after = len(load_rows())
         added, updated = parsed_collection_counts(completed.stdout, max(0, after - before))
         if completed.returncode == 0:
-            segment = f" ({segment_name})" if segment_name else ""
             result = (
-                f"Сбор завершён{segment}. Новых лидов: {added}. Обновлено контактов: {updated}. "
+                f"Сбор завершён. Новых лидов: {added}. Обновлено контактов: {updated}. "
                 f"Всего в базе: {after}.\n"
                 "Нажми «Следующий лид», чтобы начать разбор контактов."
             )
@@ -583,13 +578,7 @@ def run_collection(chat_id, limit, telegram_only=False, queries_path=None, segme
         print(f"Could not send collection report: {exc}")
 
 
-def start_collection(
-    chat_id,
-    limit=20,
-    telegram_only=False,
-    queries_path=None,
-    segment_name="",
-):
+def start_collection(chat_id, limit=20, telegram_only=False):
     limit = max(1, min(300, int(limit)))
     if not COLLECT_LOCK.acquire(blocking=False):
         send(chat_id, collection_status())
@@ -598,8 +587,7 @@ def start_collection(
     send(
         chat_id,
         (
-            f"Запустил сбор до {limit} новых лидов с публичным Telegram"
-            + (f" в сегменте «{segment_name}»." if segment_name else ".")
+            f"Запустил сбор до {limit} новых лидов с публичным Telegram."
             if telegram_only
             else f"Запустил сбор до {limit} новых лидов."
         )
@@ -607,7 +595,7 @@ def start_collection(
     )
     threading.Thread(
         target=run_collection,
-        args=(chat_id, limit, telegram_only, queries_path, segment_name),
+        args=(chat_id, limit, telegram_only),
         daemon=True,
     ).start()
 
@@ -665,16 +653,6 @@ def handle_message(message):
     text = (message.get("text") or "").strip()
     if text.startswith("/start") or text.startswith("/help"):
         send(chat_id, cmd_start())
-    elif text.startswith("/travel"):
-        parts = text.split()
-        limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 100
-        start_collection(
-            chat_id,
-            limit,
-            telegram_only=True,
-            queries_path=TOURIST_QUERIES,
-            segment_name="туристические обменники",
-        )
     elif text.startswith("/collecttg"):
         parts = text.split()
         limit = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 100
@@ -685,14 +663,6 @@ def handle_message(message):
         start_collection(chat_id, limit, telegram_only=True)
     elif text == BUTTON_COLLECT:
         start_collection(chat_id, 100, telegram_only=True)
-    elif text == BUTTON_TRAVEL:
-        start_collection(
-            chat_id,
-            100,
-            telegram_only=True,
-            queries_path=TOURIST_QUERIES,
-            segment_name="туристические обменники",
-        )
     elif text.startswith("/next"):
         parts = text.split()
         min_score = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
@@ -772,7 +742,6 @@ def handle_callback(callback):
 def configure_commands():
     commands = [
         {"command": "collect", "description": "Собрать TG-контакты"},
-        {"command": "travel", "description": "Обменники в туристических странах"},
         {"command": "next", "description": "Открыть следующий контакт"},
         {"command": "today", "description": "План 50 касаний на сегодня"},
         {"command": "count", "description": "Сколько контактов осталось"},
